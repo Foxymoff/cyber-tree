@@ -12,6 +12,7 @@ import { automoderateWish } from '@/lib/automod';
 import { getStore } from '@/lib/db/client';
 import { DB_UNAVAILABLE, jsonError, parseSince } from '@/lib/http';
 import type { SubmitWishRequest, SubmitWishResponse, WishesResponse } from '@/lib/types';
+import { isDeviceHash } from './device-hash';
 
 // Опрос раз в 2 секунды: закешированный ответ сломал бы курсор updated_at.
 export const dynamic = 'force-dynamic';
@@ -20,8 +21,6 @@ export const dynamic = 'force-dynamic';
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
 }
-
-const DEVICE_HASH = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function characterCount(value: string): number {
   return Array.from(value).length;
@@ -82,7 +81,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (characterCount(wish) > 120) {
     return submitError(400, 'Пожелание слишком длинное, уложись в 120 символов');
   }
-  if (!DEVICE_HASH.test(deviceHash)) {
+  if (!isDeviceHash(deviceHash)) {
     return submitError(400, 'Не удалось определить устройство, обнови страницу и попробуй ещё раз');
   }
 
