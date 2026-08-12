@@ -23,8 +23,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!since.ok) return jsonError(400, since.error);
 
   try {
+    // Курсор берём до SQL-запроса: так конкурентное изменение максимум
+    // придёт повторно, но не провалится в окно между SELECT и временем ответа.
+    const now = new Date().toISOString();
     const wishes = await getStore().listAll(since.since);
-    const body: AdminQueueResponse = { wishes, now: new Date().toISOString() };
+    const body: AdminQueueResponse = { wishes, now };
     return NextResponse.json(body);
   } catch (error) {
     console.error('[GET /api/admin/queue]', error);

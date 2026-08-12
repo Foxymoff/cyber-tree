@@ -41,8 +41,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!since.ok) return jsonError(400, since.error);
 
   try {
+    // Фиксируем границу до чтения. Изменение во время запроса тогда может
+    // повториться в следующем ответе, но не потеряется между SELECT и `now`.
+    const now = new Date().toISOString();
     const wishes = await getStore().listPublic(since.since);
-    const body: WishesResponse = { wishes, now: new Date().toISOString() };
+    const body: WishesResponse = { wishes, now };
     return NextResponse.json(body);
   } catch (error) {
     console.error('[GET /api/wishes]', error);
