@@ -5,9 +5,7 @@
 import { NextResponse } from 'next/server';
 
 /** Результат разбора параметра since. */
-export type SinceResult =
-  | { ok: true; since: string | null }
-  | { ok: false; error: string };
+export type SinceResult = { ok: true; since: string | null } | { ok: false; error: string };
 
 /**
  * Разбор курсора опроса.
