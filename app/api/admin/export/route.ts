@@ -10,78 +10,13 @@
  * Доступ закрыт общей httpOnly-сессией панели модератора.
  */
 import { NextResponse, type NextRequest } from 'next/server';
-import { getSpecialty } from '@/config/specialties';
 import { requireAdmin } from '@/lib/admin-auth';
 import { getStore } from '@/lib/db/client';
 import { DB_UNAVAILABLE, jsonError } from '@/lib/http';
 import type { Wish } from '@/lib/types';
+import { CSV_BOM, wishesToCsv } from './csv';
 
 export const dynamic = 'force-dynamic';
-
-const COLUMNS = [
-  'id',
-  'имя',
-  'специальность',
-  'специальность (id)',
-  'пожелание',
-  'статус',
-  'флаг автомода',
-  'отправлено',
-  'изменено',
-] as const;
-
-/**
- * BOM. Без неё Excel не поймёт, что файл в UTF-8, и покажет кракозябры.
- * Записана escape-последовательностью намеренно: невидимый символ в исходнике
- * рано или поздно потеряется при копировании, и поломка будет необъяснимой.
- */
-const BOM = '\uFEFF';
-
-/**
- * Ячейка, которую Excel выполнит как формулу, а не покажет текстом.
- * Кавычки от этого не спасают: значение в кавычках вычисляется точно так же.
- */
-const FORMULA_START = /^[=+\-@\t\r]/;
-
-/**
- * Экранирование поля CSV.
- *
- * Кроме обычного удвоения кавычек здесь обезвреживается подстановка формул.
- * Текст пожелания пишет студент, а CSV открывает модератор у себя в Excel.
- * Пожелание вида =1+1 в ячейке вычислится, а =HYPERLINK("...") превратится
- * в кликабельную ссылку, которую модератор примет за часть отчёта.
- * Апостроф в начале Excel понимает как «дальше текст» и сам его не показывает.
- */
-function csvCell(value: string | number | null): string {
-  if (value === null) return '';
-  // Числа безопасны, к ним относится только колонка id.
-  if (typeof value === 'number') return String(value);
-  const text = FORMULA_START.test(value) ? `'${value}` : value;
-  return /[";\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-}
-
-function toCsv(wishes: Wish[]): string {
-  const rows = [
-    COLUMNS.join(';'),
-    ...wishes.map((w) =>
-      [
-        w.id,
-        w.name,
-        getSpecialty(w.specialty)?.label ?? w.specialty,
-        w.specialty,
-        w.wish,
-        w.status,
-        w.autoFlag,
-        w.createdAt,
-        w.updatedAt,
-      ]
-        .map(csvCell)
-        .join(';'),
-    ),
-  ];
-  // \r\n — Excel относится к этому спокойнее, чем к голому \n.
-  return rows.join('\r\n');
-}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const auth = requireAdmin(request);
@@ -110,7 +45,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     });
   }
 
-  return new NextResponse(`${BOM}${toCsv(wishes)}`, {
+  return new NextResponse(`${CSV_BOM}${wishesToCsv(wishes)}`, {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename="wishes-${stamp}.csv"`,
