@@ -52,7 +52,13 @@ export function normalizeForModeration(input: string): string {
 
 /** Сравнение дублей не зависит от регистра, пунктуации и е/ё. */
 export function normalizeForDuplicate(input: string): string {
-  return normalizeForModeration(input)
+  // Цифры здесь сохраняем: «номер 1» и «номер 11» — разные пожелания.
+  // Подмена цифр буквами нужна для поиска мата, но создаёт ложные дубли.
+  return input
+    .normalize('NFKC')
+    .toLocaleLowerCase('ru-RU')
+    .replace(INVISIBLE, '')
+    .replace(REPEATED_LETTER, '$1')
     .replaceAll('ё', 'е')
     .replace(/[^\p{L}\p{N}]/gu, '');
 }
