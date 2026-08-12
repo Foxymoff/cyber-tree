@@ -1,0 +1,27 @@
+# зависимости
+node_modules
+
+# next.js
+.next
+out
+next-env.d.ts
+
+# переменные окружения
+# ловим всё, кроме шаблона: реальные ключи в репозиторий уезжают именно отсюда
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+
+# ос
+.DS_Store
+
+# локальная папка для временных файлов в корне репозитория
+/tmp
+
+# claude code, машинно-локальные настройки
+.claude/settings.local.json
