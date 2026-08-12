@@ -1,0 +1,96 @@
+.shell {
+  min-height: 100svh;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.card {
+  width: min(100%, 420px);
+  box-sizing: border-box;
+  padding: 32px;
+  border: 1px solid var(--copper-dim);
+  background: var(--bg);
+  box-shadow: 0 0 32px color-mix(in srgb, var(--copper-dim) 18%, transparent);
+}
+
+.card h1 {
+  margin: 8px 0 12px;
+  font-size: clamp(1.6rem, 7vw, 2.2rem);
+}
+
+.card p {
+  line-height: 1.5;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--copper-hot);
+  font-family: monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.form {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.form label {
+  font-size: 0.9rem;
+}
+
+.form input {
+  min-height: 48px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--copper-dim);
+  border-radius: 0;
+  background: transparent;
+  color: var(--silk);
+  font: inherit;
+}
+
+.form input:focus {
+  outline: 2px solid var(--copper-hot);
+  outline-offset: 2px;
+}
+
+.form button,
+.secondaryButton {
+  min-height: 48px;
+  padding: 10px 18px;
+  border: 1px solid var(--copper-hot);
+  background: var(--copper-hot);
+  color: var(--bg);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.secondaryButton {
+  margin-top: 12px;
+  background: transparent;
+  color: var(--copper-hot);
+}
+
+.error {
+  margin: 0;
+  color: var(--copper-hot);
+  font-weight: 700;
+}
+
+@media (max-width: 480px) {
+  .shell {
+    place-items: start stretch;
+    padding: 16px;
+  }
+
+  .card {
+    margin-top: 8svh;
+    padding: 24px;
+  }
+}

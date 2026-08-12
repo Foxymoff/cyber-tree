@@ -4,7 +4,7 @@
  * То же, что публичный GET /api/wishes, но отдаёт запись целиком: со статусом
  * pending и с auto_flag, по которому админка поднимает флагнутое наверх.
  *
- * ЗАГЛУШКА: авторизации пока нет, см. lib/admin-auth.ts.
+ * Доступ закрыт общей httpOnly-сессией панели модератора.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireAdmin } from '@/lib/admin-auth';
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const auth = requireAdmin(request);
-  if (!auth.ok) return jsonError(401, auth.error);
+  if (!auth.ok) return jsonError(auth.status, auth.error);
 
   const since = parseSince(request.nextUrl.searchParams.get('since'));
   if (!since.ok) return jsonError(400, since.error);

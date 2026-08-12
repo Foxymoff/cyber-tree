@@ -8,7 +8,7 @@
  * надо снять. В боевом режиме это делает триггер wishes_set_updated_at,
  * в моковом — lib/db/client.ts руками.
  *
- * ЗАГЛУШКА: авторизации пока нет, см. lib/admin-auth.ts.
+ * Доступ закрыт общей httpOnly-сессией панели модератора.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireAdmin } from '@/lib/admin-auth';
@@ -29,7 +29,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   const auth = requireAdmin(request);
-  if (!auth.ok) return jsonError(401, auth.error);
+  if (!auth.ok) return jsonError(auth.status, auth.error);
 
   const { id: rawId } = await params;
   const id = Number(rawId);

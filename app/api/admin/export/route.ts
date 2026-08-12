@@ -7,7 +7,7 @@
  *   - разделитель «точка с запятой», потому что в русской локали Excel
  *     запятая — это десятичный разделитель, и файл разъедется по одной колонке.
  *
- * ЗАГЛУШКА: авторизации пока нет, см. lib/admin-auth.ts.
+ * Доступ закрыт общей httpOnly-сессией панели модератора.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { getSpecialty } from '@/config/specialties';
@@ -85,7 +85,7 @@ function toCsv(wishes: Wish[]): string {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const auth = requireAdmin(request);
-  if (!auth.ok) return jsonError(401, auth.error);
+  if (!auth.ok) return jsonError(auth.status, auth.error);
 
   const format = request.nextUrl.searchParams.get('format') ?? 'csv';
   if (format !== 'csv' && format !== 'json') {
