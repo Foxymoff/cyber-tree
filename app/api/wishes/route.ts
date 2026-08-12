@@ -15,6 +15,11 @@ import type { SubmitWishRequest, SubmitWishResponse, WishesResponse } from '@/li
 // Опрос раз в 2 секунды: закешированный ответ сломал бы курсор updated_at.
 export const dynamic = 'force-dynamic';
 
+/** 23505 — код нарушения уникальности в Postgres. */
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const since = parseSince(request.nextUrl.searchParams.get('since'));
   if (!since.ok) return jsonError(400, since.error);
@@ -80,6 +85,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const answer: SubmitWishResponse = { ok: true };
     return NextResponse.json(answer, { status: 201 });
   } catch (error) {
+    // Проверка выше и вставка — два разных запроса, между ними есть щель.
+    // При двойном нажатии «Отправить» обе проверки успевают пройти, и вторую
+    // вставку отбивает уникальный индекс по device_hash. Показать в этом случае
+    // «сервис недоступен» — соврать: пожелание на самом деле записано.
+    if (isUniqueViolation(error)) {
+      const answer: SubmitWishResponse = {
+        ok: false,
+        error: 'С этого устройства пожелание уже отправлено, оно одно на человека',
+      };
+      return NextResponse.json(answer, { status: 409 });
+    }
     console.error('[POST /api/wishes]', error);
     const answer: SubmitWishResponse = { ok: false, error: DB_UNAVAILABLE };
     return NextResponse.json(answer, { status: 503 });

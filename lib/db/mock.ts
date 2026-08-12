@@ -16,6 +16,7 @@
  * узнает, что лист сняли с экрана. Поэтому набор всегда лежит в недавнем прошлом
  * относительно старта процесса.
  */
+import { SPECIALTIES } from '@/config/specialties';
 import type { Wish, WishStatus } from '@/lib/types';
 
 /**
@@ -32,7 +33,6 @@ function at(minutes: number): string {
 
 interface Seed {
   name: string;
-  specialty: string;
   wish: string;
   status: WishStatus;
   /** Минут от точки отсчёта до отправки. */
@@ -45,7 +45,6 @@ interface Seed {
 const SEEDS: Seed[] = [
   {
     name: 'Артём',
-    specialty: 'isip',
     wish: 'Пусть код компилируется с первого раза, а дедлайны двигаются сами',
     status: 'approved',
     sent: 0,
@@ -53,7 +52,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Даша',
-    specialty: 'ib',
     wish: 'Хочу за год собрать свой первый пентест-стенд',
     status: 'approved',
     sent: 3,
@@ -61,7 +59,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Никита',
-    specialty: 'ssa',
     wish: 'Пусть сеть никогда не падает в ночь перед сдачей',
     status: 'approved',
     sent: 5,
@@ -69,7 +66,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Соня',
-    specialty: 'isip',
     wish: 'Найти команду, с которой не страшно идти на хакатон',
     status: 'approved',
     sent: 7,
@@ -77,7 +73,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Максим',
-    specialty: 'ib',
     wish: 'Разобраться в криптографии дальше, чем «это просто работает»',
     status: 'approved',
     sent: 9,
@@ -85,14 +80,12 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Лиза',
-    specialty: 'ssa',
     wish: 'Хочу научиться настраивать всё без гугла',
     status: 'pending',
     sent: 11,
   },
   {
     name: 'Егор',
-    specialty: 'isip',
     wish: 'Пусть первый коммит в опенсорс случится этой зимой',
     status: 'approved',
     sent: 13,
@@ -100,7 +93,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Полина',
-    specialty: 'ib',
     wish: 'Сдать все лабы вовремя и ни разу не переписывать отчёт',
     status: 'approved',
     sent: 15,
@@ -108,7 +100,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Илья',
-    specialty: 'ssa',
     wish: 'Собрать домашнюю лабораторию на трёх старых системниках',
     status: 'approved',
     sent: 17,
@@ -116,7 +107,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Ксения',
-    specialty: 'isip',
     wish: 'Дожить до сессии и не возненавидеть указатели',
     status: 'approved',
     sent: 19,
@@ -124,7 +114,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Тимур',
-    specialty: 'ib',
     wish: 'Хочу поймать свою первую уязвимость на CTF',
     status: 'approved',
     sent: 21,
@@ -132,7 +121,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Марина',
-    specialty: 'ssa',
     wish: 'Пусть все кабели наконец окажутся подписаны',
     status: 'approved',
     sent: 23,
@@ -140,7 +128,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Влад',
-    specialty: 'isip',
     wish: 'Выучить, чем отличается let от const, и спать спокойно',
     status: 'approved',
     sent: 25,
@@ -148,7 +135,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Аня',
-    specialty: 'ib',
     wish: 'Год без утечек, паролей на стикерах и «потом поменяю»',
     status: 'approved',
     sent: 27,
@@ -156,14 +142,12 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Рома',
-    specialty: 'ssa',
     wish: 'Хочу поднять свой сервер и не уронить его в первый же день',
     status: 'pending',
     sent: 29,
   },
   {
     name: 'Настя',
-    specialty: 'isip',
     wish: 'Пусть проект по практике доживёт до защиты',
     status: 'approved',
     sent: 31,
@@ -171,7 +155,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Кирилл',
-    specialty: 'ib',
     wish: 'Научиться объяснять маме, чем я занимаюсь',
     status: 'approved',
     sent: 33,
@@ -179,7 +162,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Юля',
-    specialty: 'ssa',
     wish: 'Хочу разобраться в подсетях раз и навсегда',
     status: 'approved',
     sent: 35,
@@ -187,7 +169,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Денис',
-    specialty: 'isip',
     wish: 'Пусть у всех хватит терпения на первый семестр',
     status: 'approved',
     sent: 37,
@@ -195,14 +176,12 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Вера',
-    specialty: 'ib',
     wish: 'Сдать зачёт и не забыть, зачем сюда шла',
     status: 'pending',
     sent: 39,
   },
   {
     name: 'Саша',
-    specialty: 'ssa',
     wish: 'Пусть роутер переживёт этот учебный год',
     status: 'approved',
     sent: 41,
@@ -210,7 +189,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Миша',
-    specialty: 'isip',
     wish: 'Хочу успеть всё и ещё поспать',
     status: 'approved',
     sent: 43,
@@ -220,7 +198,6 @@ const SEEDS: Seed[] = [
   // автомода: они должны всплывать наверх очереди и подсвечиваться рамкой.
   {
     name: 'Алина',
-    specialty: 'ib',
     wish: 'Пиши мне в тг @alina_secure, соберём команду на CTF',
     status: 'pending',
     sent: 45,
@@ -228,7 +205,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Гриша',
-    specialty: 'ssa',
     wish: 'Заходите на мой канал http://example.com/net',
     status: 'rejected',
     sent: 47,
@@ -237,7 +213,6 @@ const SEEDS: Seed[] = [
   },
   {
     name: 'Олег',
-    specialty: 'isip',
     wish: 'Пусть код компилируется с первого раза, а дедлайны двигаются сами',
     status: 'pending',
     sent: 49,
@@ -245,11 +220,19 @@ const SEEDS: Seed[] = [
   },
 ];
 
-/** Эталонный набор. Не мутировать — от него берётся копия при каждом старте. */
+/**
+ * Эталонный набор. Не мутировать — от него берётся копия при каждом старте.
+ *
+ * Специальность раздаётся по кругу из config/specialties.ts, а не записана
+ * в каждой записи руками. Иначе в тот день, когда три примера заменят
+ * настоящим списком, все моки начнут ссылаться на несуществующие id: дерево
+ * не разложит листья по веткам, а экспорт покажет сырой id вместо названия.
+ * Заодно набор всегда равномерно размазан по всем веткам, сколько бы их ни было.
+ */
 export const MOCK_WISHES: readonly Wish[] = SEEDS.map((s, i) => ({
   id: i + 1,
   name: s.name,
-  specialty: s.specialty,
+  specialty: SPECIALTIES[i % SPECIALTIES.length].id,
   wish: s.wish,
   status: s.status,
   autoFlag: s.autoFlag ?? null,
