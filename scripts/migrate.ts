@@ -10,6 +10,7 @@
  */
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { loadEnvFile } from 'node:process';
 import { pathToFileURL } from 'node:url';
 import { neon } from '@neondatabase/serverless';
 
@@ -145,6 +146,18 @@ function describe(statement: string): string {
 }
 
 async function main(): Promise<void> {
+  // В отличие от Next.js, обычный `node scripts/migrate.ts` сам не читает
+  // .env.local. Загружаем его здесь, чтобы команда из package.json работала
+  // ровно так, как обещают .env.example и сообщение об ошибке ниже. Переменная,
+  // переданная окружением (например, в CI), остаётся приоритетной.
+  if (!process.env.DATABASE_URL?.trim()) {
+    try {
+      loadEnvFile(path.join(process.cwd(), '.env.local'));
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+    }
+  }
+
   const url = process.env.DATABASE_URL?.trim();
 
   if (!url) {
