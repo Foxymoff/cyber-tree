@@ -77,6 +77,20 @@
   color: var(--copper-hot);
 }
 
+.panelShell {
+  width: min(100%, 1120px);
+  min-height: 100svh;
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.logoutForm {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
 .error {
   margin: 0;
   color: var(--copper-hot);
@@ -92,5 +106,9 @@
   .card {
     margin-top: 8svh;
     padding: 24px;
+  }
+
+  .panelShell {
+    padding: 16px;
   }
 }

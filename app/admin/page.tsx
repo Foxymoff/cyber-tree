@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { ADMIN_SESSION_COOKIE, isAdminSession } from '@/lib/admin-auth';
 import { loginAdmin, logoutAdmin } from './actions';
+import { AdminPanel } from './admin-panel';
 import styles from './admin.module.css';
 
 const ERRORS: Record<string, string> = {
@@ -18,17 +19,13 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
 
   if (authenticated) {
     return (
-      <main className={styles.shell}>
-        <section className={styles.card}>
-          <p className={styles.eyebrow}>Сессия активна</p>
-          <h1>Панель модератора</h1>
-          <p>Вход защищён. Очередь заявок появится здесь на следующем этапе.</p>
-          <form action={logoutAdmin}>
-            <button className={styles.secondaryButton} type="submit">
-              Выйти
-            </button>
-          </form>
-        </section>
+      <main className={styles.panelShell}>
+        <AdminPanel />
+        <form action={logoutAdmin} className={styles.logoutForm}>
+          <button className={styles.secondaryButton} type="submit">
+            Выйти из панели
+          </button>
+        </form>
       </main>
     );
   }

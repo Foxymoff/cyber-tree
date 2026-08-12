@@ -1,0 +1,282 @@
+.panel {
+  width: 100%;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.header h1 {
+  margin: 6px 0 0;
+  font-size: clamp(2rem, 7vw, 3.6rem);
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--copper-hot);
+  font-family: monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.soundButton,
+.tabs button,
+.editor button {
+  min-height: 44px;
+  padding: 9px 14px;
+  border: 1px solid var(--copper-hot);
+  background: transparent;
+  color: var(--copper-hot);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.soundReminder {
+  padding: 10px 12px;
+  border-left: 3px solid var(--copper-hot);
+  line-height: 1.4;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-top: 24px;
+  border-bottom: 1px solid var(--copper-dim);
+}
+
+.tabs button {
+  border-bottom: 0;
+}
+
+.tabs button span {
+  display: inline-grid;
+  min-width: 1.4em;
+  min-height: 1.4em;
+  place-items: center;
+  margin-left: 6px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-family: monospace;
+  font-size: 0.78em;
+}
+
+.tabs .activeTab {
+  background: var(--copper-hot);
+  color: var(--bg);
+}
+
+.shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 12px 0;
+  color: var(--copper-hot);
+  font-family: monospace;
+  font-size: 0.78rem;
+}
+
+.error {
+  padding: 12px;
+  border: 1px solid #ff6b9d;
+  line-height: 1.4;
+}
+
+.empty {
+  display: grid;
+  gap: 8px;
+  min-height: 180px;
+  place-content: center;
+  padding: 20px;
+  border: 1px dashed var(--copper-dim);
+  text-align: center;
+}
+
+.empty span {
+  opacity: 0.72;
+}
+
+.list {
+  display: grid;
+  gap: 12px;
+}
+
+.wishCard {
+  position: relative;
+  padding: 18px 54px 18px 18px;
+  border: 1px solid var(--copper-dim);
+  background: var(--bg);
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.wishCard:hover,
+.selected {
+  border-color: var(--copper-hot);
+}
+
+.selected {
+  box-shadow: inset 4px 0 var(--copper-hot);
+}
+
+.flagged {
+  border-color: #ff6b9d;
+  box-shadow: inset 4px 0 #ff6b9d;
+}
+
+.flagged.selected {
+  box-shadow:
+    inset 4px 0 #ff6b9d,
+    0 0 0 1px var(--copper-hot);
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.cardHeader div {
+  display: grid;
+  gap: 5px;
+}
+
+.cardHeader strong {
+  font-size: 1.1rem;
+}
+
+.cardHeader span,
+.cardHeader time {
+  color: var(--copper-hot);
+  font-family: monospace;
+  font-size: 0.78rem;
+}
+
+.flag {
+  display: inline-block;
+  margin: 14px 0 0;
+  padding: 5px 8px;
+  border: 1px solid #ff6b9d;
+  color: #ff6b9d;
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.wishText {
+  margin: 16px 0 0;
+  font-size: 1.05rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.cardActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.cardActions button {
+  min-height: 40px;
+  padding: 7px 12px;
+  border: 1px solid var(--copper-hot);
+  background: transparent;
+  color: var(--copper-hot);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cardActions button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.rejectButton {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #ff6b9d;
+  background: transparent;
+  color: #ff6b9d;
+  font: inherit;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rejectButton:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  cursor: default;
+}
+
+.editor label {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.editor textarea {
+  width: 100%;
+  min-height: 100px;
+  box-sizing: border-box;
+  padding: 10px;
+  border: 1px solid var(--copper-hot);
+  background: var(--bg);
+  color: var(--silk);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.editor div {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 600px) {
+  .header {
+    display: grid;
+  }
+
+  .soundButton {
+    width: 100%;
+  }
+
+  .tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .tabs button {
+    padding-inline: 8px;
+    font-size: 0.86rem;
+  }
+
+  .shortcuts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .wishCard {
+    padding: 16px 48px 16px 14px;
+  }
+
+  .cardHeader {
+    display: grid;
+  }
+}
