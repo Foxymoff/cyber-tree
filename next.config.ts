@@ -1,7 +1,11 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // next dev по умолчанию сам дописывает блок с инструкциями для кодовых
+  // агентов в AGENTS.md и CLAUDE.md. Здесь это недопустимо: AGENTS.md —
+  // договор о зонах ответственности между двумя агентами, и посторонние
+  // правки в нём приезжают в чужие коммиты и путают, кому что принадлежит.
+  agentRules: false,
 };
 
 export default nextConfig;
