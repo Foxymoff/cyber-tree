@@ -18,7 +18,9 @@
 import { chromium } from 'playwright';
 
 const BASE = process.env.SHOT_URL ?? 'http://localhost:3000';
-const PATH = process.env.SHOT_PATH ?? '/display';
+// still=1 обязателен: без него режим покоя дышит и дрейфует, и два
+// снимка одного seed не совпадают, а весь цикл доводки построен на сравнении.
+const PATH = process.env.SHOT_PATH ?? '/display?seed=demo&still=1';
 const OUT = process.env.SHOT_OUT ?? '/tmp/display.png';
 
 // Целевое разрешение панели, раздел 8 ТЗ.

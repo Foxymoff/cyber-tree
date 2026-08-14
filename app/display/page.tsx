@@ -7,7 +7,8 @@
  *
  * Параметры адреса:
  *   ?seed=demo   — какое дерево генерировать, одно и то же при одном seed;
- *   ?mock=30     — наполнить тестовыми листьями, не обращаясь к базе.
+ *   ?mock=30     — наполнить тестовыми листьями, не обращаясь к базе;
+ *   ?still=1     — стоп-кадр для съёмки, режим покоя заморожен.
  */
 import { Golos_Text, JetBrains_Mono, Unbounded } from 'next/font/google';
 import styles from './display.module.css';
@@ -34,7 +35,11 @@ const body = Golos_Text({
 });
 
 interface DisplayPageProps {
-  searchParams: Promise<{ seed?: string | string[]; mock?: string | string[] }>;
+  searchParams: Promise<{
+    seed?: string | string[];
+    mock?: string | string[];
+    still?: string | string[];
+  }>;
 }
 
 function firstValue(value: string | string[] | undefined): string | undefined {
@@ -48,9 +53,13 @@ export default async function DisplayPage({ searchParams }: DisplayPageProps) {
   const mockRaw = Number.parseInt(firstValue(params.mock) ?? '', 10);
   const mock = Number.isFinite(mockRaw) && mockRaw > 0 ? Math.min(mockRaw, 400) : 0;
 
+  // ?still=1 замораживает режим покоя. Нужен для съёмки: только в стоп-кадре
+  // два скриншота одного seed совпадают байт в байт.
+  const still = firstValue(params.still) === '1';
+
   return (
     <main className={`${mono.variable} ${display.variable} ${body.variable} ${styles.stage}`}>
-      <TreeMount seed={seed} mock={mock} />
+      <TreeMount seed={seed} mock={mock} still={still} />
     </main>
   );
 }

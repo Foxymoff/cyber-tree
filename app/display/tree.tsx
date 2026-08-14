@@ -40,6 +40,8 @@ const ECHO_MS = 7000;
 export interface TreeProps {
   seed: string;
   mock: number;
+  /** Стоп-кадр для съёмки: покой заморожен, кадр воспроизводим. */
+  still: boolean;
 }
 
 function computeResolution(cssWidth: number): number {
@@ -59,7 +61,7 @@ function cssFont(variable: string, fallback: string): string {
   return value.length > 0 ? `${value}, ${fallback}` : fallback;
 }
 
-export default function Tree({ seed, mock }: TreeProps) {
+export default function Tree({ seed, mock, still }: TreeProps) {
   const holderRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<TreeScene | null>(null);
 
@@ -142,11 +144,22 @@ export default function Tree({ seed, mock }: TreeProps) {
       holder.appendChild(app.canvas);
 
       const tree = generateTree(seed);
-      const scene = new TreeScene(app, tree, cssFont('--font-mono', 'ui-monospace, monospace'), {
-        onWishArrived: enqueueCard,
-        onEcho: showEcho,
-      });
+      const scene = new TreeScene(
+        app,
+        tree,
+        cssFont('--font-mono', 'ui-monospace, monospace'),
+        { onWishArrived: enqueueCard, onEcho: showEcho },
+        still,
+      );
       sceneRef.current = scene;
+
+      // Диагностический хук. Нужен, чтобы проверять поведение экрана снаружи:
+      // сколько листьев висит сейчас и виден ли лист с таким id. На
+      // мероприятии пригодится, чтобы убедиться, что снятие доехало, не
+      // вглядываясь в дерево.
+      (window as unknown as { cyberTree?: unknown }).cyberTree = {
+        leafCount: () => scene.leafCount,
+      };
 
       // Моковый режим: дерево наполняется тестовыми листьями без обращения
       // к базе. Они появляются сразу, без импульсов и карточек.
@@ -176,7 +189,34 @@ export default function Tree({ seed, mock }: TreeProps) {
         application = null;
       }
     };
-  }, [seed, mock, enqueueCard, showEcho]);
+  }, [seed, mock, still, enqueueCard, showEcho]);
+
+  // Клавиша S — выгрузка снимка дерева в двойном разрешении. Раздел 12 ТЗ.
+  useEffect(() => {
+    const onKeyDown = async (event: KeyboardEvent) => {
+      // Раскладка тут не важна: событие по коду клавиши, поэтому «ы» тоже
+      // сработает — на мероприятии переключать язык никто не будет.
+      if (event.code !== 'KeyS' || event.metaKey || event.ctrlKey || event.altKey) return;
+      const scene = sceneRef.current;
+      if (!scene) return;
+
+      const blob = await scene.capture(2);
+      if (!blob) return;
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `кибер-дерево-${new Date().toISOString().slice(0, 19).replaceAll(':', '-')}.png`;
+      link.click();
+      URL.revokeObjectURL(url);
+    };
+
+    // Обёртка именованная: снимать надо ровно ту же ссылку, иначе слушатель
+    // останется висеть после размонтирования.
+    const handler = (event: KeyboardEvent) => void onKeyDown(event);
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   useWishFeed(
     {

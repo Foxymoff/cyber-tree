@@ -10,6 +10,7 @@ import { SPECIALTIES } from '@/config/specialties';
 import type { Anchor, Point, Tree } from '@/lib/tree/generate';
 import { createLeaf } from '@/lib/tree/leaf';
 import { PALETTE } from '@/lib/tree/palette';
+import { randomFromSeed } from '@/lib/tree/random';
 import { buildSilkPlaceholders, buildTreeGraphics, specialtyColor } from '@/lib/tree/render';
 import type { PublicWish } from '@/lib/types';
 
@@ -47,6 +48,7 @@ interface PlacedLeaf {
   wish: PublicWish;
   anchor: Anchor;
   view: Container;
+  label: Text;
   /** Сдвиг фазы дыхания, чтобы листья не мигали в такт. */
   phase: number;
   /** Остаток вспышки после прилёта. */
@@ -89,6 +91,8 @@ export class TreeScene {
   /** Всё содержимое сцены — чтобы двигать камеру одним объектом. */
   private readonly world = new Container();
   private readonly leavesLayer = new Container();
+  /** Подписи листьев: вне bloom, чтобы имена не размывались. */
+  private readonly labelsLayer = new Container();
   private readonly pulseGraphics = new Graphics();
   private readonly counter: Text;
 
@@ -100,14 +104,31 @@ export class TreeScene {
   private elapsed = 0;
   private nextEchoAt = ECHO_MIN_MS;
   private nextAmbientAt = AMBIENT_MIN_MS;
-  /** Отдельный поток случайности: покой не обязан быть воспроизводимым. */
-  private readonly noise = () => Math.random();
+  /**
+   * Случайность режима покоя. Посажена на тот же seed, что и дерево: иначе
+   * фазы дыхания и фоновые импульсы каждый раз разные, и два скриншота одного
+   * seed отличаются. Цикл доводки по картинкам этим ломается насмерть.
+   */
+  private readonly noise: () => number;
+  /**
+   * Стоп-кадр: покой заморожен, камера не дрейфует, фоновых импульсов нет.
+   * Режим для съёмки — только в нём кадр воспроизводим байт в байт.
+   */
+  private readonly still: boolean;
 
-  constructor(app: Application, tree: Tree, fontFamily: string, callbacks: SceneCallbacks) {
+  constructor(
+    app: Application,
+    tree: Tree,
+    fontFamily: string,
+    callbacks: SceneCallbacks,
+    still = false,
+  ) {
     this.app = app;
     this.tree = tree;
     this.fontFamily = fontFamily;
     this.callbacks = callbacks;
+    this.still = still;
+    this.noise = randomFromSeed(`${tree.seed}:idle`);
     this.takenByBranch = tree.anchorsByBranch.map(() => 0);
 
     // Слой свечения: дорожки, импульсы, листья.
@@ -115,20 +136,28 @@ export class TreeScene {
     glowLayer.addChild(buildTreeGraphics(tree));
     glowLayer.addChild(this.pulseGraphics);
     glowLayer.addChild(this.leavesLayer);
-    glowLayer.filterArea = new Rectangle(-200, -200, tree.width + 400, tree.height + 400);
-    glowLayer.filters = [
-      new AdvancedBloomFilter({
-        threshold: 0.52,
-        bloomScale: 0.72,
-        brightness: 1,
-        blur: 5,
-        quality: 5,
-      }),
-    ];
+    // Область фильтра — ровно сцена. Без неё Pixi пересчитывает границы
+    // каждый кадр, а лишний запас по краям это чистая трата закраски.
+    glowLayer.filterArea = new Rectangle(0, 0, tree.width, tree.height);
+
+    const bloom = new AdvancedBloomFilter({
+      threshold: 0.52,
+      bloomScale: 0.72,
+      brightness: 1,
+      blur: 5,
+      quality: 4,
+    });
+    // Свечение считается в половинном разрешении. Bloom на весь экран —
+    // самая дорогая часть кадра, а размытое пятно от снижения разрешения
+    // вдвое на глаз не отличается. Раздел 8 ТЗ прямо предупреждает, что
+    // полноэкранный bloom надо проверять заранее.
+    bloom.resolution = 0.5;
+    glowLayer.filters = [bloom];
 
     // Слой шелкографии: плоский цвет, вне bloom — иначе подписи поплывут.
     const silkLayer = new Container();
     silkLayer.addChild(buildSilkPlaceholders(tree));
+    silkLayer.addChild(this.labelsLayer);
 
     this.counter = new Text({
       text: 'листьев на дереве: 0',
@@ -177,25 +206,30 @@ export class TreeScene {
     if (anchor === null) return;
 
     const color = specialtyColor(anchor.branchIndex);
-    const view = createLeaf({
+    const { view, label } = createLeaf({
       name: wish.name,
       color,
       size: anchor.size,
       fontFamily: this.fontFamily,
     });
     // Корпус смещён от дорожки в сторону, чтобы не лежать прямо на ней.
-    view.position.set(anchor.point.x, anchor.point.y + anchor.side * 16);
+    const x = anchor.point.x;
+    const y = anchor.point.y + anchor.side * 16;
+    view.position.set(x, y);
+    label.position.set(x, y);
 
     const placed: PlacedLeaf = {
       wish,
       anchor,
       view,
+      label,
       phase: this.noise() * Math.PI * 2,
       flash: 0,
     };
 
     if (animate) {
       view.alpha = 0;
+      label.alpha = 0;
       const { lengths, total } = segmentLengths(anchor.path);
       this.pulses.push({
         path: anchor.path,
@@ -213,6 +247,7 @@ export class TreeScene {
     }
 
     this.leavesLayer.addChild(view);
+    this.labelsLayer.addChild(label);
     this.leaves.set(wish.id, placed);
     this.updateCounter();
   }
@@ -223,7 +258,9 @@ export class TreeScene {
     if (!placed) return;
 
     this.leavesLayer.removeChild(placed.view);
+    this.labelsLayer.removeChild(placed.label);
     placed.view.destroy({ children: true });
+    placed.label.destroy();
     this.leaves.delete(id);
 
     // Точку крепления не возвращаем в оборот: пусть дерево не перекладывает
@@ -296,17 +333,29 @@ export class TreeScene {
 
   private breatheLeaves(deltaMs: number): void {
     for (const leaf of this.leaves.values()) {
+      if (this.still) {
+        leaf.view.scale.set(1);
+        leaf.view.alpha = 0.9;
+        leaf.label.scale.set(1);
+        leaf.label.alpha = 0.9;
+        continue;
+      }
       if (leaf.flash > 0) {
         leaf.flash = Math.max(0, leaf.flash - deltaMs);
         const t = leaf.flash / FLASH_MS;
         // Вспышка ярче нормы, затем оседание.
         leaf.view.alpha = 1 + t * 0.9;
         leaf.view.scale.set(1 + t * 0.12);
+        leaf.label.alpha = 1 + t * 0.9;
+        leaf.label.scale.set(1 + t * 0.12);
         continue;
       }
       leaf.view.scale.set(1);
+      leaf.label.scale.set(1);
       // Еле заметное дыхание свечения.
-      leaf.view.alpha = 0.9 + Math.sin(this.elapsed / 1400 + leaf.phase) * 0.08;
+      const alpha = 0.9 + Math.sin(this.elapsed / 1400 + leaf.phase) * 0.08;
+      leaf.view.alpha = alpha;
+      leaf.label.alpha = alpha;
     }
   }
 
@@ -322,6 +371,13 @@ export class TreeScene {
 
   private readonly tick = (): void => {
     const deltaMs = this.app.ticker.deltaMS;
+
+    if (this.still) {
+      // В стоп-кадре время не идёт: ни дрейфа, ни импульсов, ни всплытий.
+      this.breatheLeaves(deltaMs);
+      return;
+    }
+
     this.elapsed += deltaMs;
 
     if (this.elapsed >= this.nextAmbientAt) {
@@ -339,6 +395,22 @@ export class TreeScene {
   /** Сколько листьев сейчас на дереве. */
   get leafCount(): number {
     return this.leaves.size;
+  }
+
+  /**
+   * Снимок сцены в двойном разрешении. Раздел 12 ТЗ, для соцсетей колледжа.
+   *
+   * Берётся именно через renderer.extract, а не скриншотом окна: так в кадр
+   * попадает ровно сцена 1920x1080 без браузерной обвязки и в честном 2x.
+   */
+  async capture(scale = 2): Promise<Blob | null> {
+    const canvas = this.app.renderer.extract.canvas({
+      target: this.app.stage,
+      resolution: scale,
+    }) as HTMLCanvasElement;
+
+    if (typeof canvas.toBlob !== 'function') return null;
+    return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/png'));
   }
 
   destroy(): void {

@@ -538,9 +538,12 @@ function fitToFrame(tree: Tree, params: TreeParams): Tree {
       })),
     ),
     base: map(tree.base),
+    // Шелкография привязана к основанию ствола, а не к центру кадра: после
+    // подгонки ствол не обязан стоять ровно посередине, и логотипы уехали бы
+    // в сторону от него.
     silkArea: {
       ...tree.silkArea,
-      x: params.width / 2 - tree.silkArea.width / 2,
+      x: map(tree.base).x - tree.silkArea.width / 2,
       y: bottomY + 14,
     },
   };

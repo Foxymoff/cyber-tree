@@ -18,8 +18,10 @@ export interface TreeMountProps {
   seed: string;
   /** Сколько тестовых листьев нарисовать вместо обращения к базе. */
   mock: number;
+  /** Стоп-кадр для съёмки. */
+  still: boolean;
 }
 
-export default function TreeMount({ seed, mock }: TreeMountProps) {
-  return <Tree seed={seed} mock={mock} />;
+export default function TreeMount({ seed, mock, still }: TreeMountProps) {
+  return <Tree seed={seed} mock={mock} still={still} />;
 }

@@ -64,8 +64,20 @@ function fitName(name: string, maxChars: number): string {
   return `${characters.slice(0, maxChars - 1).join('')}…`;
 }
 
-/** Контейнер листа с началом координат в точке крепления. */
-export function createLeaf(options: LeafOptions): Container {
+export interface Leaf {
+  /** Корпус, ножки и точка первого вывода. Идёт в слой свечения. */
+  view: Container;
+  /**
+   * Подпись. Отдельно от корпуса намеренно: слой свечения считается в
+   * половинном разрешении ради скорости, и текст в нём размывается. Имя —
+   * это всё содержимое листа, оно обязано оставаться резким, поэтому живёт
+   * в отдельном слое поверх, вне bloom.
+   */
+  label: Text;
+}
+
+/** Лист с началом координат в точке крепления. */
+export function createLeaf(options: LeafOptions): Leaf {
   const spec = SIZES[options.size];
   const container = new Container();
 
@@ -74,7 +86,9 @@ export function createLeaf(options: LeafOptions): Container {
     style: new TextStyle({
       fontFamily: options.fontFamily,
       fontSize: spec.fontSize,
-      fill: mixColors(options.color, 0xffffff, 0.55),
+      // Подсветка идёт к шелкографии, а не к чистому белому: белого нет
+      // среди токенов раздела 8, а --silk там ровно для светлого текста.
+      fill: mixColors(options.color, PALETTE.silk, 0.62),
       letterSpacing: 0.6,
     }),
   });
@@ -111,8 +125,6 @@ export function createLeaf(options: LeafOptions): Container {
   container.addChild(pinOne);
 
   label.anchor.set(0.5);
-  label.position.set(0, 0);
-  container.addChild(label);
 
-  return container;
+  return { view: container, label };
 }
