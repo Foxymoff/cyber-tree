@@ -92,6 +92,9 @@ export interface TreeParams {
   height: number;
   /** Отступ основания ствола от нижнего края. */
   baseMargin: number;
+  /** Поля кадра при подгонке готового дерева. */
+  sideMargin: number;
+  topMargin: number;
   /** Длина ствола до места, где расходятся магистрали. */
   trunkLength: number;
   trunkWidth: number;
@@ -102,15 +105,25 @@ export interface TreeParams {
   runLength: number;
   runDecay: number;
   runJitter: number;
-  /** Насколько широко расходится веер магистралей. */
-  fanSpread: number;
+  /**
+   * На сколько ниже крепится к стволу самая крайняя магистраль.
+   *
+   * Все ветви из одной точки дают силуэт буквы V. Когда внешние отходят
+   * ниже центральных, крона становится куполом, а низ кадра перестаёт
+   * пустовать.
+   */
+  trunkSpread: number;
+  /** Насколько короче ведомая ветвь по сравнению с ведущей на той же развилке. */
+  minorScale: number;
+  /** До какой глубины ведущая ветвь принудительно уходит наружу. */
+  outwardDepth: number;
   maxDepth: number;
   /**
-   * Насколько короче растут крайние магистрали по сравнению с центральной.
+   * Поправка длины крайних магистралей относительно центральной.
    *
-   * Без этого крона получается вогнутой: подводка веера идёт под 45°, поэтому
-   * чем дальше магистраль от центра, тем выше она стартует, и внешние ветви
-   * перерастают центральную. Спад к краям возвращает силуэт к куполу.
+   * Отрицательное значение делает крайние длиннее. Так и надо: они крепятся
+   * ниже по стволу, и без запаса длины крона получается вогнутой — центральная
+   * ветвь торчит вверх, а крайние не дотягиваются.
    */
   crownFalloff: number;
   /** С какой глубины дорожка начинает нести листья. */
@@ -125,18 +138,22 @@ export const DEFAULT_PARAMS: TreeParams = {
   width: 1920,
   height: 1080,
   baseMargin: 96,
-  trunkLength: 170,
+  sideMargin: 96,
+  topMargin: 72,
+  trunkLength: 300,
   trunkWidth: 16,
   widthDecay: 0.74,
   minWidth: 2,
-  runLength: 128,
-  runDecay: 0.86,
+  runLength: 178,
+  runDecay: 0.83,
   runJitter: 0.22,
-  fanSpread: 260,
-  maxDepth: 7,
-  crownFalloff: 0.3,
-  anchorMinDepth: 2,
-  anchorSpacing: 32,
+  trunkSpread: 150,
+  minorScale: 0.66,
+  outwardDepth: 3,
+  maxDepth: 6,
+  crownFalloff: -0.12,
+  anchorMinDepth: 1,
+  anchorSpacing: 19,
   viaRadius: 7,
 };
 
@@ -156,14 +173,22 @@ const DIRECTIONS: readonly Point[] = [
   { x: -D, y: -D }, // 7  вверх-влево
 ];
 
-/**
- * Направления, которыми дерево растёт вверх: от «влево» через «вверх»
- * до «вправо». Вниз дорожки не уходят — дерево должно расти, а не свисать.
- */
+/** Вниз дорожки не уходят: дерево растёт, а не свисает. */
 const UPWARD = [6, 7, 0, 1, 2] as const;
+/** Чистые горизонтали. */
+const HORIZONTAL = [2, 6] as const;
 
-function isUpward(direction: number): boolean {
-  return (UPWARD as readonly number[]).includes(direction);
+/**
+ * Можно ли расти в этом направлении на этой глубине.
+ *
+ * Горизонтали разрешены только магистралям у основания кроны: ими ветвь
+ * уходит вширь и заполняет кадр 16:9. Выше они запрещены — иначе крона
+ * расплывается плоской полосой и силуэт читается как буква V, а не дерево.
+ */
+function isAllowed(direction: number, depth: number, params: TreeParams): boolean {
+  if (!(UPWARD as readonly number[]).includes(direction)) return false;
+  if ((HORIZONTAL as readonly number[]).includes(direction)) return depth <= params.outwardDepth;
+  return true;
 }
 
 function distance(a: Point, b: Point): number {
@@ -185,6 +210,14 @@ interface GrowContext {
   params: TreeParams;
   /** Множитель длины пробегов для этой магистрали. См. crownFalloff. */
   lengthScale: number;
+  /**
+   * Куда для этой магистрали «наружу»: -1 влево, +1 вправо.
+   *
+   * На малых глубинах ведущая ветвь поворачивает именно туда. Без этого
+   * каждая магистраль расходится симметрично, дерево растёт вверх столбом
+   * и не заполняет кадр 16:9 по ширине.
+   */
+  outward: -1 | 1;
   random: Random;
   traces: Trace[];
   vias: Via[];
@@ -286,34 +319,68 @@ function grow(
   const children = alwaysSplit ? 2 : intBetween(random, 1, 2);
   const turns = children === 1 ? [random() < 0.5 ? -1 : 1] : [-1, 1];
 
-  for (const turn of turns) {
+  // На развилке одна ветвь ведущая, вторая заметно короче. Без этого обе
+  // дочерние растут одинаково, и крона превращается в правильную решётку,
+  // которая читается как узор, а не как дерево.
+  // На первых уровнях ведущая ветвь идёт наружу — это задаёт разлёт кроны.
+  // Глубже направление выбирается свободно, иначе крона станет причёсанной.
+  const leadOutward = depth <= params.outwardDepth;
+  const leaderFirst = leadOutward ? turns[0] === context.outward : random() < 0.5;
+
+  turns.forEach((turn, order) => {
     let next = (direction + turn + DIRECTIONS.length) % DIRECTIONS.length;
-    // Наружу за пределы «вверх» не уходим: иначе ветви заваливаются вбок.
-    if (!isUpward(next)) next = direction;
-    grow(context, end, next, depth + 1, pathToEnd);
-  }
+    if (!isAllowed(next, depth + 1, params)) next = direction;
+    // Если и текущее направление уже нельзя (горизонталь выше нужной глубины),
+    // сворачиваем на ближайшую диагональ вверх.
+    if (!isAllowed(next, depth + 1, params)) next = context.outward > 0 ? 1 : 7;
+
+    const isLeader = turns.length === 1 || (order === 0) === leaderFirst;
+    const scale = isLeader ? 1 : params.minorScale;
+    grow({ ...context, lengthScale: context.lengthScale * scale }, end, next, depth + 1, pathToEnd);
+  });
+}
+
+interface Attachment {
+  /** Точка на стволе, где отходит магистраль. */
+  point: Point;
+  /** Начальное направление роста: индекс в DIRECTIONS. */
+  direction: number;
+  /** Удалённость от центра кроны: 0 — центральная ветвь, 1 — крайняя. */
+  away: number;
+  /** В какую сторону этой магистрали расти наружу. */
+  outward: -1 | 1;
 }
 
 /**
- * Веер магистралей от вершины ствола.
+ * Куда и под каким углом крепится магистраль.
  *
- * Раскладка сделана как разводка шины на плате: каждая магистраль отходит
- * диагональю до своего горизонтального смещения, а дальше идёт вверх.
- * Поэтому веер одинаково осмысленно выглядит и на трёх ветвях, и на шести —
- * захардкоженных чисел здесь нет, всё считается от длины SPECIALTIES.
+ * Раскладка целиком считается от количества специальностей, поэтому одинаково
+ * работает и на трёх ветвях, и на шести. Захардкоженных чисел веток нет.
+ *
+ * Крайние магистрали отходят ниже по стволу и сразу забирают диагональю в
+ * сторону, центральные — выше и вертикально. Так получается купол.
  */
-function fanOut(trunkTop: Point, index: number, count: number, spread: number): Point[] {
-  if (count === 1) return [trunkTop];
+function attachmentFor(
+  base: Point,
+  trunkTop: Point,
+  index: number,
+  count: number,
+  params: TreeParams,
+): Attachment {
+  if (count === 1) return { point: trunkTop, direction: 0, away: 0, outward: 1 };
 
-  // Смещения симметричны относительно центра: -1 .. +1.
-  const t = count === 1 ? 0 : (index / (count - 1)) * 2 - 1;
-  const offset = t * spread;
-  if (Math.abs(offset) < 1) return [trunkTop];
+  const t = (index / (count - 1)) * 2 - 1; // -1 слева .. +1 справа
+  const away = Math.abs(t);
+  const point = { x: base.x, y: trunkTop.y + away * params.trunkSpread };
+  // Чем дальше магистраль от центра, тем положе она стартует: крайние уходят
+  // горизонтально и растаскивают крону по ширине, центральная идёт вверх.
+  // 6 — влево, 7 — вверх-влево, 0 — вверх, 1 — вверх-вправо, 2 — вправо.
+  // Стартуют все диагональю, а не горизонталью: горизонтальный первый пробег
+  // выкладывает под кроной плоский рельс, и дерево распадается на отдельные
+  // кусты, стоящие на перекладине.
+  const direction = away > 0.15 ? (t < 0 ? 7 : 1) : 0;
 
-  // Диагональ на 45°, значит по вертикали проходим столько же, сколько по
-  // горизонтали. Затем поворот вверх.
-  const corner = { x: trunkTop.x + offset, y: trunkTop.y - Math.abs(offset) };
-  return [trunkTop, corner];
+  return { point, direction, away, outward: t < 0 ? -1 : 1 };
 }
 
 export function generateTree(seed: string, overrides: Partial<TreeParams> = {}): Tree {
@@ -338,29 +405,16 @@ export function generateTree(seed: string, overrides: Partial<TreeParams> = {}):
   const anchorsByBranch: Anchor[][] = [];
 
   for (let index = 0; index < branchCount; index += 1) {
-    const lead = fanOut(trunkTop, index, branchCount, params.fanSpread);
-    // Положение магистрали в веере: 0 — центр, 1 — самый край.
-    const offCenter = branchCount === 1 ? 0 : Math.abs((index / (branchCount - 1)) * 2 - 1);
-    const lengthScale = 1 - params.crownFalloff * offCenter;
-    const startPoint = lead[lead.length - 1];
+    const attachment = attachmentFor(base, trunkTop, index, branchCount, params);
+    const lengthScale = 1 - params.crownFalloff * attachment.away;
+    const startPoint = attachment.point;
 
-    if (lead.length > 1) {
-      traces.push({
-        points: lead,
-        width: widthAt(params, 1),
-        depth: 1,
-        branchIndex: index,
-      });
-      vias.push({
-        point: startPoint,
-        radius: params.viaRadius,
-        branchIndex: index,
-      });
-    }
+    vias.push({ point: startPoint, radius: params.viaRadius * 1.2, branchIndex: index });
 
     const context: GrowContext = {
       params,
       lengthScale,
+      outward: attachment.outward,
       random,
       traces,
       vias,
@@ -369,9 +423,9 @@ export function generateTree(seed: string, overrides: Partial<TreeParams> = {}):
       nextAnchorId,
     };
 
-    // Путь от основания: ствол, затем подводка магистрали.
-    const pathToStart = [base, ...lead.slice(1)];
-    grow(context, startPoint, 0, 1, pathToStart);
+    // Путь от основания: подъём по стволу до места крепления.
+    const pathToStart = [base, startPoint];
+    grow(context, startPoint, attachment.direction, 1, pathToStart);
 
     // Снизу вверх: на экране ось y растёт вниз, поэтому больший y — ниже.
     const ordered = context.anchors.sort((a, b) => b.point.y - a.point.y || a.point.x - b.point.x);
@@ -383,7 +437,7 @@ export function generateTree(seed: string, overrides: Partial<TreeParams> = {}):
     anchorsByBranch.push(ordered);
   }
 
-  return {
+  const raw: Tree = {
     seed,
     width: params.width,
     height: params.height,
@@ -396,6 +450,66 @@ export function generateTree(seed: string, overrides: Partial<TreeParams> = {}):
       y: base.y + 14,
       width: 480,
       height: 64,
+    },
+  };
+
+  return fitToFrame(raw, params);
+}
+
+/**
+ * Вписать готовое дерево в кадр.
+ *
+ * Масштабирование строго равномерное: при нём углы сохраняются, а значит
+ * кратность 45° никуда не девается. Неравномерное растяжение испортило бы
+ * всю разводку, поэтому его здесь нет.
+ *
+ * Зачем это нужно: разброс между seed'ами и между длинами списка
+ * специальностей велик, и без подгонки дерево то не дотягивается до краёв,
+ * то вылезает за них. После подгонки композиция предсказуема при любом seed.
+ * Детерминизм не страдает — преобразование считается от самого дерева.
+ */
+function fitToFrame(tree: Tree, params: TreeParams): Tree {
+  const points = tree.traces.flatMap((trace) => trace.points);
+  const minX = Math.min(...points.map((p) => p.x));
+  const maxX = Math.max(...points.map((p) => p.x));
+  const minY = Math.min(...points.map((p) => p.y));
+  const maxY = Math.max(...points.map((p) => p.y));
+
+  const boxWidth = Math.max(1, maxX - minX);
+  const boxHeight = Math.max(1, maxY - minY);
+  const availableWidth = params.width - params.sideMargin * 2;
+  const availableHeight = params.height - params.baseMargin - params.topMargin;
+  const scale = Math.min(availableWidth / boxWidth, availableHeight / boxHeight);
+
+  const centerX = (minX + maxX) / 2;
+  const bottomY = params.height - params.baseMargin;
+
+  const map = (point: Point): Point => ({
+    x: params.width / 2 + (point.x - centerX) * scale,
+    y: bottomY - (maxY - point.y) * scale,
+  });
+
+  return {
+    ...tree,
+    traces: tree.traces.map((trace) => ({
+      ...trace,
+      points: trace.points.map(map),
+      width: trace.width * scale,
+    })),
+    vias: tree.vias.map((via) => ({ ...via, point: map(via.point), radius: via.radius * scale })),
+    anchorsByBranch: tree.anchorsByBranch.map((branch) =>
+      branch.map((anchor) => ({
+        ...anchor,
+        point: map(anchor.point),
+        path: anchor.path.map(map),
+        pathLength: anchor.pathLength * scale,
+      })),
+    ),
+    base: map(tree.base),
+    silkArea: {
+      ...tree.silkArea,
+      x: params.width / 2 - tree.silkArea.width / 2,
+      y: bottomY + 14,
     },
   };
 }

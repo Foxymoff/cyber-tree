@@ -1,0 +1,101 @@
+/*
+ * Сцена дерева. Всё оформление держится на токенах раздела 8 ТЗ,
+ * заданных в app/globals.css.
+ */
+
+.stage {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: var(--bg);
+  /* Панель — не рабочий стол: курсор в кадре не нужен. */
+  cursor: none;
+}
+
+/* Канвас держит пропорции 16:9 и вписывается в экран целиком. */
+.canvasHolder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.canvasHolder canvas {
+  display: block;
+}
+
+/*
+ * Накладка с пожеланием. Обычный DOM поверх канваса: крупная кириллица
+ * шрифтом Unbounded здесь просто работает, а в Pixi это возня со шрифтами
+ * ради худшего результата.
+ */
+.card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0.96);
+  width: min(72vw, 1180px);
+  padding: 3.2vh 4vw;
+  box-sizing: border-box;
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 420ms ease,
+    transform 420ms ease;
+}
+
+.cardVisible {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.cardText {
+  margin: 0;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: clamp(2.4rem, 4.4vw, 5rem);
+  line-height: 1.16;
+  color: var(--silk);
+  text-wrap: balance;
+}
+
+.cardMeta {
+  margin: 2.4vh 0 0;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: clamp(0.9rem, 1.5vw, 1.6rem);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Негромкое всплытие старого пожелания в углу — оформлено иначе, чем свежее. */
+.echo {
+  position: absolute;
+  left: 3.2vw;
+  bottom: 8vh;
+  max-width: min(30vw, 520px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 1200ms ease;
+}
+
+.echoVisible {
+  opacity: 0.62;
+}
+
+.echoText {
+  margin: 0;
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-size: clamp(0.95rem, 1.25vw, 1.4rem);
+  line-height: 1.4;
+  color: var(--copper-dim);
+}
+
+.echoMeta {
+  margin: 0.6em 0 0;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: clamp(0.7rem, 0.9vw, 1rem);
+  letter-spacing: 0.08em;
+  color: var(--copper-dim);
+  opacity: 0.75;
+}
