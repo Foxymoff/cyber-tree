@@ -4,13 +4,15 @@
  * GET  — опрос для /display: что изменилось после метки since.
  * POST — отправка пожелания с формы.
  *
- * ЗАГЛУШКА. Формы ответов финальные, против них уже пишется визуализация.
- * Валидация по разделу 6 и автомодерация — задачи 2 и 3 в docs/task-backend.md.
+ * Формы ответов зафиксированы в lib/types.ts: против них пишется визуализация.
  */
 import { NextResponse, type NextRequest } from 'next/server';
+import { isSpecialtyId } from '@/config/specialties';
+import { automoderateWish } from '@/lib/automod';
 import { getStore } from '@/lib/db/client';
 import { DB_UNAVAILABLE, jsonError, parseSince } from '@/lib/http';
 import type { SubmitWishRequest, SubmitWishResponse, WishesResponse } from '@/lib/types';
+import { isDeviceHash } from './device-hash';
 
 // Опрос раз в 2 секунды: закешированный ответ сломал бы курсор updated_at.
 export const dynamic = 'force-dynamic';
@@ -20,13 +22,30 @@ function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
 }
 
+function characterCount(value: string): number {
+  return Array.from(value).length;
+}
+
+function submitError(status: number, error: string): NextResponse {
+  const answer: SubmitWishResponse = { ok: false, error };
+  return NextResponse.json(answer, { status });
+}
+
+function mergeFlags(...flags: Array<string | null>): string | null {
+  const reasons = new Set(flags.flatMap((flag) => flag?.split(', ') ?? []));
+  return reasons.size > 0 ? Array.from(reasons).join(', ') : null;
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const since = parseSince(request.nextUrl.searchParams.get('since'));
   if (!since.ok) return jsonError(400, since.error);
 
   try {
+    // Фиксируем границу до чтения. Изменение во время запроса тогда может
+    // повториться в следующем ответе, но не потеряется между SELECT и `now`.
+    const now = new Date().toISOString();
     const wishes = await getStore().listPublic(since.since);
-    const body: WishesResponse = { wishes, now: new Date().toISOString() };
+    const body: WishesResponse = { wishes, now };
     return NextResponse.json(body);
   } catch (error) {
     console.error('[GET /api/wishes]', error);
@@ -35,25 +54,38 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  let body: Partial<SubmitWishRequest>;
+  let parsed: unknown;
   try {
-    body = (await request.json()) as Partial<SubmitWishRequest>;
+    parsed = await request.json();
   } catch {
-    const answer: SubmitWishResponse = { ok: false, error: 'Не удалось разобрать запрос' };
-    return NextResponse.json(answer, { status: 400 });
+    return submitError(400, 'Не удалось разобрать запрос');
   }
 
-  const name = typeof body.name === 'string' ? body.name.trim() : '';
-  const specialty = typeof body.specialty === 'string' ? body.specialty : '';
-  const wish = typeof body.wish === 'string' ? body.wish.trim() : '';
-  const deviceHash = typeof body.deviceHash === 'string' ? body.deviceHash : '';
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return submitError(400, 'Заполни форму и отправь её ещё раз');
+  }
 
-  // Проверка только на заполненность полей. Настоящая валидация по разделу 6
-  // (длины, мат с нормализацией, ссылки, упоминания, телефоны, дубликаты)
-  // и заполнение auto_flag — задача 2 в docs/task-backend.md.
-  if (name === '' || specialty === '' || wish === '') {
-    const answer: SubmitWishResponse = { ok: false, error: 'Заполни все поля' };
-    return NextResponse.json(answer, { status: 400 });
+  const body = parsed as Partial<SubmitWishRequest>;
+
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  const specialty = typeof body.specialty === 'string' ? body.specialty.trim() : '';
+  const wish = typeof body.wish === 'string' ? body.wish.trim() : '';
+  const deviceHash =
+    typeof body.deviceHash === 'string' ? body.deviceHash.trim().toLowerCase() : '';
+
+  if (name === '') return submitError(400, 'Напиши имя');
+  if (characterCount(name) < 2) return submitError(400, 'Имя должно быть не короче 2 символов');
+  if (characterCount(name) > 30)
+    return submitError(400, 'Имя слишком длинное, максимум 30 символов');
+  if (!isSpecialtyId(specialty)) return submitError(400, 'Выбери специальность из списка');
+  if (wish === '') return submitError(400, 'Напиши пожелание');
+  if (characterCount(wish) < 3)
+    return submitError(400, 'Пожелание должно быть не короче 3 символов');
+  if (characterCount(wish) > 120) {
+    return submitError(400, 'Пожелание слишком длинное, уложись в 120 символов');
+  }
+  if (!isDeviceHash(deviceHash)) {
+    return submitError(400, 'Не удалось определить устройство, обнови страницу и попробуй ещё раз');
   }
 
   try {
@@ -61,25 +93,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // Одно пожелание на устройство. Ограничение по IP не ставим сознательно:
     // у мобильных операторов сотни абонентов сидят за одним адресом.
-    if (deviceHash !== '') {
-      const existing = await store.findByDeviceHash(deviceHash);
-      if (existing !== null) {
-        const answer: SubmitWishResponse = {
-          ok: false,
-          error: 'С этого устройства пожелание уже отправлено, оно одно на человека',
-        };
-        return NextResponse.json(answer, { status: 409 });
-      }
+    const existing = await store.findByDeviceHash(deviceHash);
+    if (existing !== null) {
+      return submitError(409, 'С этого устройства пожелание уже отправлено, оно одно на человека');
     }
 
+    const existingWishes = (await store.listAll()).map((item) => item.wish);
+    const moderatedName = automoderateWish(name);
+    const moderatedWish = automoderateWish(wish, { existingWishes });
+
     await store.create({
-      name,
+      name: moderatedName.wish,
       specialty,
-      wish,
-      deviceHash: deviceHash === '' ? null : deviceHash,
-      // Автомод ничего не публикует и ничего не удаляет — он только проставляет
-      // причину в auto_flag. Пока его нет, флага нет.
-      autoFlag: null,
+      wish: moderatedWish.wish,
+      deviceHash,
+      // Автомод только объясняет, что проверить. Статус всё равно pending,
+      // окончательное решение всегда принимает модератор.
+      autoFlag: mergeFlags(moderatedName.autoFlag, moderatedWish.autoFlag),
     });
 
     const answer: SubmitWishResponse = { ok: true };
@@ -90,11 +120,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // вставку отбивает уникальный индекс по device_hash. Показать в этом случае
     // «сервис недоступен» — соврать: пожелание на самом деле записано.
     if (isUniqueViolation(error)) {
-      const answer: SubmitWishResponse = {
-        ok: false,
-        error: 'С этого устройства пожелание уже отправлено, оно одно на человека',
-      };
-      return NextResponse.json(answer, { status: 409 });
+      return submitError(409, 'С этого устройства пожелание уже отправлено, оно одно на человека');
     }
     console.error('[POST /api/wishes]', error);
     const answer: SubmitWishResponse = { ok: false, error: DB_UNAVAILABLE };
