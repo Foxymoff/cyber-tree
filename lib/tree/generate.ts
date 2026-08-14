@@ -130,6 +130,20 @@ export interface TreeParams {
   anchorMinDepth: number;
   /** Шаг между точками крепления вдоль дорожки. */
   anchorSpacing: number;
+  /**
+   * Минимальный зазор между соседними листьями при раздаче.
+   *
+   * Точек крепления намеренно больше, чем нужно, и подряд идущие лежат в
+   * 19 пикселях друг от друга — это втрое меньше корпуса листа. Если раздавать
+   * их подряд, первые же десять пожеланий слипнутся в кучу у основания ветви.
+   * Поэтому раздача идёт в два яруса: сначала разнесённые не ближе этого
+   * зазора, и лишь когда они кончились — промежуточные.
+   *
+   * Зазор задан габаритом корпуса, а не радиусом: лист вытянут по горизонтали,
+   * и круговая проверка отсекала бы вполне пригодные точки этажом выше.
+   */
+  leafGapX: number;
+  leafGapY: number;
   viaRadius: number;
 }
 
@@ -154,6 +168,8 @@ export const DEFAULT_PARAMS: TreeParams = {
   crownFalloff: -0.12,
   anchorMinDepth: 1,
   anchorSpacing: 19,
+  leafGapX: 104,
+  leafGapY: 30,
   viaRadius: 7,
 };
 
@@ -429,12 +445,28 @@ export function generateTree(seed: string, overrides: Partial<TreeParams> = {}):
 
     // Снизу вверх: на экране ось y растёт вниз, поэтому больший y — ниже.
     const ordered = context.anchors.sort((a, b) => b.point.y - a.point.y || a.point.x - b.point.x);
+
+    // Первый ярус: точки, разнесённые не ближе leafGap. Жадный проход снизу
+    // вверх, поэтому дерево заполняется от основания и без наложений.
+    const spread: Anchor[] = [];
+    const reserve: Anchor[] = [];
+    for (const anchor of ordered) {
+      const farEnough = spread.every(
+        (taken) =>
+          Math.abs(taken.point.x - anchor.point.x) >= params.leafGapX ||
+          Math.abs(taken.point.y - anchor.point.y) >= params.leafGapY,
+      );
+      if (farEnough) spread.push(anchor);
+      else reserve.push(anchor);
+    }
+
+    const finalOrder = [...spread, ...reserve];
     // Размер чередуется по порядку раздачи, а не по порядку обхода.
-    ordered.forEach((anchor, order) => {
+    finalOrder.forEach((anchor, order) => {
       anchor.size = order % 2 === 0 ? 'large' : 'small';
     });
 
-    anchorsByBranch.push(ordered);
+    anchorsByBranch.push(finalOrder);
   }
 
   const raw: Tree = {

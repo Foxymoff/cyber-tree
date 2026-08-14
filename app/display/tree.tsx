@@ -5,22 +5,23 @@
  *
  * Компонент грузится только в браузере — см. tree-mount.tsx.
  *
- * Три слоя, как требует ТЗ:
- *   свечение     — дорожки и листья, под AdvancedBloomFilter;
- *   шелкография  — логотипы и счётчик, плоский цвет, вне bloom;
- *   накладка     — карточка пожелания, обычный DOM поверх канваса.
+ * Три слоя: свечение под bloom (дорожки, импульсы, листья), шелкография вне
+ * bloom (счётчик, логотипы) и накладка обычным DOM (карточка пожелания).
  *
  * Размер сцены всегда 1920x1080. На панели большего разрешения растёт не
  * сцена, а renderer.resolution: иначе поплывут все выверенные по скриншотам
  * размеры дорожек и листьев.
  */
-import { useEffect, useRef, useState } from 'react';
-import { Application, Container, Graphics, Rectangle, Text, TextStyle } from 'pixi.js';
-import { AdvancedBloomFilter } from 'pixi-filters';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Application } from 'pixi.js';
+import { getSpecialty } from '@/config/specialties';
 import { generateTree } from '@/lib/tree/generate';
+import { createMockWishes } from '@/lib/tree/mock-wishes';
 import { PALETTE } from '@/lib/tree/palette';
-import { buildSilkPlaceholders, buildTreeGraphics } from '@/lib/tree/render';
+import type { PublicWish } from '@/lib/types';
 import styles from './display.module.css';
+import { TreeScene } from './scene';
+import { useWishFeed } from './use-wish-feed';
 
 /** Размер сцены в её собственных единицах. Не меняется никогда. */
 const SCENE_WIDTH = 1920;
@@ -29,18 +30,23 @@ const SCENE_HEIGHT = 1080;
 /** Выше этого поднимать resolution бессмысленно: память тратится, глаз не видит. */
 const MAX_RESOLUTION = 3;
 
+/** Сколько держится карточка пожелания, раздел 8 ТЗ. */
+const CARD_MS = 6000;
+/** Пауза между карточками, чтобы они не наезжали друг на друга. */
+const CARD_GAP_MS = 600;
+/** Сколько висит негромкое всплытие старого пожелания. */
+const ECHO_MS = 7000;
+
 export interface TreeProps {
   seed: string;
   mock: number;
 }
 
-/** Во сколько физических пикселей укладывается одна единица сцены. */
 function computeResolution(cssWidth: number): number {
   const ratio = typeof window === 'undefined' ? 1 : (window.devicePixelRatio ?? 1);
   return Math.min(MAX_RESOLUTION, Math.max(1, (cssWidth * ratio) / SCENE_WIDTH));
 }
 
-/** Размер канваса на экране: вписываем 16:9 целиком, без обрезки. */
 function computeCanvasSize(): { width: number; height: number } {
   const scale = Math.min(window.innerWidth / SCENE_WIDTH, window.innerHeight / SCENE_HEIGHT);
   return { width: SCENE_WIDTH * scale, height: SCENE_HEIGHT * scale };
@@ -55,8 +61,49 @@ function cssFont(variable: string, fallback: string): string {
 
 export default function Tree({ seed, mock }: TreeProps) {
   const holderRef = useRef<HTMLDivElement | null>(null);
-  const [leafCount] = useState(0);
-  const counterRef = useRef<Text | null>(null);
+  const sceneRef = useRef<TreeScene | null>(null);
+
+  const [card, setCard] = useState<PublicWish | null>(null);
+  const [echo, setEcho] = useState<PublicWish | null>(null);
+
+  // Пожелания приходят пачками: модератор одобряет несколько подряд, и в один
+  // ответ опроса прилетает три-четыре штуки. Карточки становятся в очередь и
+  // показываются по одной — наложения быть не должно.
+  const cardQueue = useRef<PublicWish[]>([]);
+  const cardBusy = useRef(false);
+
+  // Именованное функциональное выражение: рекурсивный вызов идёт на саму
+  // функцию, а не на переменную снаружи, поэтому очередь разбирается до конца.
+  const pumpCards = useCallback(function pump(): void {
+    if (cardBusy.current) return;
+    const next = cardQueue.current.shift();
+    if (!next) return;
+
+    cardBusy.current = true;
+    setCard(next);
+    window.setTimeout(() => {
+      setCard(null);
+      window.setTimeout(() => {
+        cardBusy.current = false;
+        pump();
+      }, CARD_GAP_MS);
+    }, CARD_MS);
+  }, []);
+
+  const enqueueCard = useCallback(
+    (wish: PublicWish) => {
+      cardQueue.current.push(wish);
+      pumpCards();
+    },
+    [pumpCards],
+  );
+
+  const showEcho = useCallback((wish: PublicWish) => {
+    // Всплытие не должно спорить с карточкой прилёта за внимание.
+    if (cardBusy.current) return;
+    setEcho(wish);
+    window.setTimeout(() => setEcho(null), ECHO_MS);
+  }, []);
 
   useEffect(() => {
     const holder = holderRef.current;
@@ -95,41 +142,17 @@ export default function Tree({ seed, mock }: TreeProps) {
       holder.appendChild(app.canvas);
 
       const tree = generateTree(seed);
-
-      // Слой свечения: дорожки и листья.
-      const glowLayer = new Container();
-      glowLayer.addChild(buildTreeGraphics(tree));
-      // Без явной области фильтр пересчитывает границы каждый кадр.
-      glowLayer.filterArea = new Rectangle(0, 0, SCENE_WIDTH, SCENE_HEIGHT);
-      glowLayer.filters = [
-        new AdvancedBloomFilter({
-          threshold: 0.52,
-          bloomScale: 0.72,
-          brightness: 1,
-          blur: 5,
-          quality: 5,
-        }),
-      ];
-
-      // Слой шелкографии: плоский цвет, вне bloom — иначе подписи поплывут.
-      const silkLayer = new Container();
-      silkLayer.addChild(buildSilkPlaceholders(tree));
-
-      const counter = new Text({
-        text: `листьев на дереве: ${leafCount}`,
-        style: new TextStyle({
-          fontFamily: cssFont('--font-mono', 'ui-monospace, monospace'),
-          fontSize: 22,
-          fill: PALETTE.silk,
-          letterSpacing: 1.4,
-        }),
+      const scene = new TreeScene(app, tree, cssFont('--font-mono', 'ui-monospace, monospace'), {
+        onWishArrived: enqueueCard,
+        onEcho: showEcho,
       });
-      counter.alpha = 0.5;
-      counter.position.set(48, SCENE_HEIGHT - 56);
-      counterRef.current = counter;
-      silkLayer.addChild(counter);
+      sceneRef.current = scene;
 
-      app.stage.addChild(glowLayer, silkLayer);
+      // Моковый режим: дерево наполняется тестовыми листьями без обращения
+      // к базе. Они появляются сразу, без импульсов и карточек.
+      if (mock > 0) {
+        for (const wish of createMockWishes(seed, mock)) scene.addWish(wish, false);
+      }
 
       handleResize = () => {
         if (!application) return;
@@ -146,13 +169,49 @@ export default function Tree({ seed, mock }: TreeProps) {
     return () => {
       disposed = true;
       if (handleResize) window.removeEventListener('resize', handleResize);
-      counterRef.current = null;
+      sceneRef.current?.destroy();
+      sceneRef.current = null;
       if (application) {
         application.destroy(true, { children: true });
         application = null;
       }
     };
-  }, [seed, mock, leafCount]);
+  }, [seed, mock, enqueueCard, showEcho]);
 
-  return <div ref={holderRef} className={styles.canvasHolder} />;
+  useWishFeed(
+    {
+      onArrive: (wish, initial) => sceneRef.current?.addWish(wish, !initial),
+      onRemove: (id) => sceneRef.current?.removeWish(id),
+    },
+    // В моковом режиме к базе не ходим вовсе.
+    mock === 0,
+  );
+
+  const cardSpecialty = card ? getSpecialty(card.specialty) : undefined;
+  const echoSpecialty = echo ? getSpecialty(echo.specialty) : undefined;
+
+  return (
+    <>
+      <div ref={holderRef} className={styles.canvasHolder} />
+
+      <div className={`${styles.card} ${card ? styles.cardVisible : ''}`} aria-hidden={!card}>
+        <p className={styles.cardText}>{card?.wish}</p>
+        <p
+          className={styles.cardMeta}
+          style={{ color: cardSpecialty?.color ?? 'var(--copper-hot)' }}
+        >
+          {card?.name}
+          {cardSpecialty ? ` · ${cardSpecialty.label}` : ''}
+        </p>
+      </div>
+
+      <div className={`${styles.echo} ${echo ? styles.echoVisible : ''}`} aria-hidden={!echo}>
+        <p className={styles.echoText}>{echo?.wish}</p>
+        <p className={styles.echoMeta}>
+          {echo?.name}
+          {echoSpecialty ? ` · ${echoSpecialty.label}` : ''}
+        </p>
+      </div>
+    </>
+  );
 }
