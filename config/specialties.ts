@@ -10,8 +10,8 @@
  * #FFD166  #B98CFF  #5FE07A
  */
 export const SPECIALTIES = [
-  { id: 'isip', label: 'Разработка и управление программным обеспечением', short: 'ИСП', color: '#4DE1C1' },
-  { id: 'mr',   label: 'Мехатроника и робототехника',                      short: 'МР',  color: '#FF6B9D' },
+  { id: 'isip', label: 'Разработка и управление программным обеспечением', short: 'РУПО', color: '#4DE1C1' },
+  { id: 'mr',   label: 'Мехатроника и робототехника',                      short: 'МР',   color: '#FF6B9D' },
 ] as const;
 
 /** Идентификатор специальности, например 'isip'. */
