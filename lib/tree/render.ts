@@ -4,7 +4,7 @@
  * Модуль знает про Pixi, но не про React и не про опрос API: на вход —
  * структура из generate.ts, на выход — заполненные контейнеры.
  */
-import { Container, Graphics } from 'pixi.js';
+import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import { getSpecialty } from '@/config/specialties';
 import type { Tree, Trace, Via } from './generate';
 import { PALETTE, dim, hexToNumber } from './palette';
@@ -72,33 +72,67 @@ export function buildTreeGraphics(tree: Tree): Graphics {
   return graphics;
 }
 
+/** Ширина зазора под ствол между двумя логотипами у основания. */
+const SILK_TRUNK_GAP = 84;
+
 /**
- * Заглушки логотипов у основания ствола.
- *
- * Настоящих SVG пока нет. Шелкография на плате — плоский цвет без свечения
- * и без градиентов, поэтому и заглушки такие же: тонкая рамка цветом --silk.
- * Когда файлы появятся в /public/logos/, эта функция заменяется на загрузку
- * спрайтов в тот же контейнер и с той же геометрией.
+ * Логотипы у основания дерева: college слева, ui справа, ствол между ними.
+ * Порядок соответствует раскладке слотов в mountSilkLogos.
  */
-export function buildSilkPlaceholders(tree: Tree): Container {
-  const container = new Container();
+const SILK_LOGOS = ['/logos/college.svg', '/logos/ui.svg'] as const;
+
+/** Токен --silk в виде строки для SVG. */
+function silkHex(): string {
+  return `#${PALETTE.silk.toString(16).padStart(6, '0')}`;
+}
+
+/**
+ * Загрузить SVG как одноцветную шелкографию.
+ *
+ * Все непустые заливки перекрашиваются в --silk: на плате шелкография
+ * одноцветная, а исходники разноцветные (college зелёно-чёрный) или чёрные
+ * (ui). fill="none" не трогаем — это невидимые служебные фигуры и корневой
+ * атрибут, заливать их нечем и незачем; видимые фигуры ui заданы fill="black"
+ * и потому окрашиваются, а не пропадают. Пропорции берутся из самого SVG.
+ */
+async function loadSilkTexture(url: string, silk: string): Promise<Texture> {
+  const response = await fetch(url);
+  const source = await response.text();
+  const recolored = source.replace(/fill="(?!none")[^"]*"/g, `fill="${silk}"`);
+
+  const image = new Image();
+  image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(recolored)}`;
+  await image.decode();
+
+  return Texture.from(image);
+}
+
+/**
+ * Разместить логотипы у основания ствола. Асинхронно: спрайты появляются в
+ * переданном слое, когда SVG загрузились и перекрасились.
+ *
+ * Слой — шелкография вне bloom, поэтому логотипы не светятся, как и положено
+ * шелкографии на плате. Каждый вписан в свой слот с сохранением пропорций и
+ * не залезает на ствол: по центру области оставлен зазор SILK_TRUNK_GAP.
+ */
+export async function mountSilkLogos(layer: Container, tree: Tree): Promise<void> {
+  const silk = silkHex();
   const { x, y, width, height } = tree.silkArea;
+  const slotWidth = (width - SILK_TRUNK_GAP) / 2;
+  const slots = [x, x + slotWidth + SILK_TRUNK_GAP];
 
-  // По центру области оставлен зазор под ствол: две рамки стоят слева и справа
-  // от корня, а не отдельной строкой под деревом. Ширина зазора — с запасом от
-  // толщины ствола, чтобы дорожка проходила между ними, не задевая рамки.
-  const trunkGap = 84;
-  const slotWidth = (width - trunkGap) / 2;
-
-  for (const left of [x, x + slotWidth + trunkGap]) {
-    const slot = new Graphics();
-    slot.roundRect(left, y, slotWidth, height, 4).stroke({
-      width: 1.5,
-      color: PALETTE.silk,
-      alpha: 0.3,
-    });
-    container.addChild(slot);
-  }
-
-  return container;
+  await Promise.all(
+    SILK_LOGOS.map(async (url, index) => {
+      const texture = await loadSilkTexture(url, silk);
+      const sprite = new Sprite(texture);
+      // Вписать в слот, сохранив пропорции исходника.
+      const scale = Math.min(slotWidth / texture.width, height / texture.height);
+      sprite.scale.set(scale);
+      sprite.anchor.set(0.5);
+      sprite.position.set(slots[index] + slotWidth / 2, y + height / 2);
+      // Шелкография не в полную силу: служебная подпись, а не акцент.
+      sprite.alpha = 0.82;
+      layer.addChild(sprite);
+    }),
+  );
 }

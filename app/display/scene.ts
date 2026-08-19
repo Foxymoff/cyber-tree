@@ -10,7 +10,7 @@ import { LEAF_SIDE_OFFSET, type Anchor, type Point, type Tree } from '@/lib/tree
 import { createLeaf } from '@/lib/tree/leaf';
 import { PALETTE } from '@/lib/tree/palette';
 import { randomFromSeed } from '@/lib/tree/random';
-import { buildSilkPlaceholders, buildTreeGraphics, specialtyColor } from '@/lib/tree/render';
+import { buildTreeGraphics, mountSilkLogos, specialtyColor } from '@/lib/tree/render';
 import type { PublicWish } from '@/lib/types';
 
 /** Длительность бега импульса от корня до листа, раздел 8 ТЗ: 0.8–1.2 с. */
@@ -161,10 +161,14 @@ export class TreeScene {
     bloom.resolution = 0.5;
     glowLayer.filters = [bloom];
 
-    // Слой шелкографии: плоский цвет, вне bloom — иначе подписи поплывут.
+    // Слой шелкографии: плоский цвет, вне bloom — иначе подписи и логотипы
+    // поплывут. Логотипы грузятся асинхронно и появляются в своём контейнере,
+    // когда SVG перекрасились в --silk.
     const silkLayer = new Container();
-    silkLayer.addChild(buildSilkPlaceholders(tree));
+    const silkLogos = new Container();
+    silkLayer.addChild(silkLogos);
     silkLayer.addChild(this.labelsLayer);
+    void mountSilkLogos(silkLogos, tree);
 
     this.counter = new Text({
       text: 'листьев на дереве: 0',
