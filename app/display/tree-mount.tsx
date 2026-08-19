@@ -1,23 +1,27 @@
 'use client';
 
 /**
- * Точка монтирования дерева.
+ * Точка монтирования сцены.
  *
  * Единственная причина, по которой этот файл существует отдельно: в App Router
  * опция ssr: false у next/dynamic разрешена только внутри клиентского
- * компонента. Из серверного она роняет сборку. Поэтому серверная страница
- * подключает этот компонент, а он уже подтягивает сцену без рендера на сервере.
- *
- * Так каркас под Pixi стоит правильно с самого начала, и агенту визуализации
- * не придётся переставлять его задним числом.
+ * компонента. Из серверного она роняет сборку.
  */
 import dynamic from 'next/dynamic';
 
 const Tree = dynamic(() => import('./tree'), {
   ssr: false,
-  loading: () => <p>Сцена загружается…</p>,
+  loading: () => null,
 });
 
-export default function TreeMount() {
-  return <Tree />;
+export interface TreeMountProps {
+  seed: string;
+  /** Сколько тестовых листьев нарисовать вместо обращения к базе. */
+  mock: number;
+  /** Стоп-кадр для съёмки. */
+  still: boolean;
+}
+
+export default function TreeMount({ seed, mock, still }: TreeMountProps) {
+  return <Tree seed={seed} mock={mock} still={still} />;
 }

@@ -1,23 +1,65 @@
 /**
- * ЗАГЛУШКА. Дерево на плазменной панели.
+ * Дерево на плазменной панели. Раздел 8 ТЗ.
  *
- * Чужая зона (app/display/** в AGENTS.md): её делает агент визуализации,
- * агенту-бэкендеру сюда не писать.
+ * Серверный компонент: он только разбирает параметры адреса и подключает
+ * шрифты. Всё, что связано с PixiJS, живёт ниже в клиентских компонентах —
+ * на сервере Pixi падает.
  *
- * Серверный компонент. Всё, что связано с PixiJS, живёт ниже по дереву
- * в клиентских компонентах: на сервере Pixi падает.
+ * Параметры адреса:
+ *   ?seed=demo   — какое дерево генерировать, одно и то же при одном seed;
+ *   ?mock=30     — наполнить тестовыми листьями, не обращаясь к базе;
+ *   ?still=1     — стоп-кадр для съёмки, режим покоя заморожен.
  */
+import { Golos_Text, JetBrains_Mono, Unbounded } from 'next/font/google';
+import styles from './display.module.css';
 import TreeMount from './tree-mount';
 
-export default function DisplayPage() {
+// Шрифты раздела 8. Подключены здесь, а не в общем layout.tsx: они нужны
+// только на этой странице, а форма и админка оформлены своими средствами.
+const mono = JetBrains_Mono({
+  subsets: ['cyrillic', 'latin'],
+  variable: '--font-mono',
+  display: 'swap',
+});
+
+const display = Unbounded({
+  subsets: ['cyrillic', 'latin'],
+  variable: '--font-display',
+  display: 'swap',
+});
+
+const body = Golos_Text({
+  subsets: ['cyrillic', 'latin'],
+  variable: '--font-body',
+  display: 'swap',
+});
+
+interface DisplayPageProps {
+  searchParams: Promise<{
+    seed?: string | string[];
+    mock?: string | string[];
+    still?: string | string[];
+  }>;
+}
+
+function firstValue(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+export default async function DisplayPage({ searchParams }: DisplayPageProps) {
+  const params = await searchParams;
+  const seed = firstValue(params.seed) ?? 'demo';
+  const mockRaw = Number.parseInt(firstValue(params.mock) ?? '', 10);
+  const mock = Number.isFinite(mockRaw) && mockRaw > 0 ? Math.min(mockRaw, 400) : 0;
+
+  // ?still=1 замораживает режим покоя. Нужен для съёмки: только в стоп-кадре
+  // два скриншота одного seed совпадают байт в байт.
+  const still = firstValue(params.still) === '1';
+
   return (
-    <main style={{ padding: '2rem', lineHeight: 1.6 }}>
-      <h1>/display</h1>
-      <p>
-        Дерево на панели. Зона агента визуализации по <code>AGENTS.md</code>, этапы 4–6 в разделе 10{' '}
-        <code>docs/spec.md</code>.
-      </p>
-      <TreeMount />
+    <main className={`${mono.variable} ${display.variable} ${body.variable} ${styles.stage}`}>
+      <TreeMount seed={seed} mock={mock} still={still} />
     </main>
   );
 }
