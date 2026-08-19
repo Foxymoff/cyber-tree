@@ -25,6 +25,19 @@ const ECHO_MAX_MS = 30_000;
 const AMBIENT_MIN_MS = 2600;
 const AMBIENT_MAX_MS = 6200;
 
+/** Разогрев: интервал между стартовыми листьями по умолчанию (~0.6 с). */
+const WARMUP_STEP_MS = 600;
+/** Весь разогрев укладываем примерно в это время, сжимая шаг при большом N. */
+const WARMUP_TOTAL_MS = 30_000;
+/** Быстрее этого шаг не жмём, иначе прилёты сливаются в мельтешение. */
+const WARMUP_MIN_STEP_MS = 140;
+
+/**
+ * Насколько фаза (центр→край) важнее вторичного «снизу вверх» при раздаче.
+ * Больше — резче выражены фазы роста; меньше — почти чистый рост снизу вверх.
+ */
+const FILL_PHASE_WEIGHT = 2.4;
+
 export interface SceneCallbacks {
   /** Показать карточку пожелания поверх экрана. */
   onWishArrived: (wish: PublicWish) => void;
@@ -105,7 +118,20 @@ export class TreeScene {
   private readonly leaves = new Map<number, PlacedLeaf>();
   /** Сколько точек крепления из общего пула уже занято. */
   private taken = 0;
+  /**
+   * Порядок раздачи точек: реализует траекторию роста — сначала вверх по центру,
+   * потом вширь. Пересобран из tree.anchors в сцене, чтобы не трогать геометрию
+   * (lib/tree/generate.ts). Ёмкость и сами точки те же, меняется только очерёдь.
+   */
+  private readonly fillOrder: Anchor[];
   private readonly pulses: ActivePulse[] = [];
+
+  /** Очередь разогрева: стартовые листья прилетают по одному, а не одним кадром. */
+  private readonly warmupQueue: PublicWish[] = [];
+  private warmupActive = false;
+  private warmupStarted = false;
+  private warmupStepMs = WARMUP_STEP_MS;
+  private warmupAccMs = 0;
 
   private elapsed = 0;
   private nextEchoAt = ECHO_MIN_MS;
@@ -135,6 +161,7 @@ export class TreeScene {
     this.callbacks = callbacks;
     this.still = still;
     this.noise = randomFromSeed(`${tree.seed}:idle`);
+    this.fillOrder = this.buildFillOrder();
 
     // Слой свечения: тёмные дорожки, поверх — подсвеченные пути, импульсы,
     // листья. Порядок важен: lit ложится на базовые дорожки, но под листья.
@@ -229,13 +256,76 @@ export class TreeScene {
   }
 
   /**
-   * Следующая свободная точка из общего пула. Пул упорядочен снизу вверх
-   * слоями, поэтому дерево заполняется от основания независимо от того, какой
-   * специальности пришло пожелание.
+   * Пересобрать порядок раздачи точек в траекторию роста.
+   *
+   * У каждой точки берём высоту (снизу вверх) и удаление от оси ствола. На
+   * каждом шаге приоритет — взвешенная сумма: в начале (доля заполнения f→0)
+   * вес центра большой, к концу (f→1) веса меняются местами и растёт вес края.
+   * Так дерево сначала тянется вверх по центру, потом расходится вширь. Сдвиг
+   * непрерывный по f, без скачка. Вторичный член «высота» держит рост снизу
+   * вверх внутри фазы.
+   *
+   * Фаза привязана к ДОЛЕ заполнения (f = k / ёмкость), а не к абсолютному
+   * числу листьев — дуга роста отыгрывается и при 80 листьях, и при 150.
+   *
+   * Геометрию не трогаем: точки и их число те же, что в tree.anchors, меняется
+   * только очерёдность. Резерв (сверх ёмкости без наложений) идёт в хвост как есть.
+   */
+  private buildFillOrder(): Anchor[] {
+    const spread = this.tree.anchors.slice(0, this.tree.spreadCount);
+    const reserve = this.tree.anchors.slice(this.tree.spreadCount);
+    if (spread.length <= 2) return [...spread, ...reserve];
+
+    const axisX = this.tree.base.x;
+    let yTop = Infinity;
+    let yBottom = -Infinity;
+    let maxOffset = 0;
+    for (const anchor of spread) {
+      yTop = Math.min(yTop, anchor.point.y);
+      yBottom = Math.max(yBottom, anchor.point.y);
+      maxOffset = Math.max(maxOffset, Math.abs(anchor.point.x - axisX));
+    }
+    const ySpan = Math.max(1, yBottom - yTop);
+    maxOffset = Math.max(1, maxOffset);
+
+    const meta = spread.map((anchor) => ({
+      anchor,
+      rise: (yBottom - anchor.point.y) / ySpan, // 0 у основания, 1 у вершины
+      offset: Math.abs(anchor.point.x - axisX) / maxOffset, // 0 центр, 1 край
+      used: false,
+    }));
+
+    const order: Anchor[] = [];
+    for (let k = 0; k < meta.length; k += 1) {
+      const f = k / (meta.length - 1);
+      let best: (typeof meta)[number] | null = null;
+      let bestCost = Infinity;
+      for (const item of meta) {
+        if (item.used) continue;
+        // Ранняя фаза штрафует уход от оси, поздняя — центральность; строго <
+        // на равенстве оставляет первого, а исходный порядок детерминирован.
+        const phase = (1 - f) * item.offset + f * (1 - item.offset);
+        const cost = FILL_PHASE_WEIGHT * phase + item.rise;
+        if (cost < bestCost) {
+          bestCost = cost;
+          best = item;
+        }
+      }
+      if (!best) break;
+      best.used = true;
+      order.push(best.anchor);
+    }
+
+    return [...order, ...reserve];
+  }
+
+  /**
+   * Следующая свободная точка в порядке роста (см. buildFillOrder). Порядок
+   * реализует траекторию: сначала вверх по центру, потом вширь.
    */
   private takeAnchor(): Anchor | null {
-    if (this.taken >= this.tree.anchors.length) return null;
-    const anchor = this.tree.anchors[this.taken];
+    if (this.taken >= this.fillOrder.length) return null;
+    const anchor = this.fillOrder[this.taken];
     this.taken += 1;
     return anchor;
   }
@@ -243,10 +333,12 @@ export class TreeScene {
   /**
    * Добавить лист.
    *
-   * animate = false для листьев, которые уже висели на дереве до открытия
-   * страницы: они должны просто быть, без импульса и карточки.
+   * animate — с импульсом от корня и вспышкой; false для моковых листьев
+   * (появляются сразу). showCard — показать ли карточку пожелания поверх экрана.
+   * Разогрев зовёт с animate=true, showCard=false: импульс есть, а 20-30 карточек
+   * подряд не нужны.
    */
-  addWish(wish: PublicWish, animate: boolean): void {
+  addWish(wish: PublicWish, animate: boolean, showCard: boolean = animate): void {
     if (this.leaves.has(wish.id)) return;
 
     const anchor = this.takeAnchor();
@@ -294,7 +386,7 @@ export class TreeScene {
         },
       });
       // Карточка идёт одновременно с импульсом — так требует раздел 8.
-      this.callbacks.onWishArrived(wish);
+      if (showCard) this.callbacks.onWishArrived(wish);
     } else {
       // Листья, уже висевшие до открытия страницы (и моковые): без импульса,
       // но путь к ним сразу подсвечен — дерево не должно стоять тёмным.
@@ -325,6 +417,47 @@ export class TreeScene {
 
   private updateCounter(): void {
     this.counter.text = `листьев на дереве: ${this.leaves.size}`;
+  }
+
+  /** Идёт ли сейчас разогрев (стартовые листья ещё влетают). */
+  get warmingUp(): boolean {
+    return this.warmupActive;
+  }
+
+  /**
+   * Поставить пожелание в очередь разогрева. Стартовые листья (и живые,
+   * пришедшие во время разогрева) влетают по одному, а не одним кадром.
+   */
+  enqueueWarmup(wish: PublicWish): void {
+    this.warmupQueue.push(wish);
+    this.warmupActive = true;
+  }
+
+  /** Выпускать листья разогрева по таймеру. Зовётся из тика. */
+  private drainWarmup(deltaMs: number): void {
+    if (!this.warmupActive) return;
+
+    if (!this.warmupStarted) {
+      this.warmupStarted = true;
+      // Шаг считаем один раз по числу стартовых: при большом N жмём, чтобы
+      // весь разогрев уложился примерно в WARMUP_TOTAL_MS, а не тянулся минутами.
+      const count = Math.max(1, this.warmupQueue.length);
+      this.warmupStepMs = Math.min(
+        WARMUP_STEP_MS,
+        Math.max(WARMUP_MIN_STEP_MS, WARMUP_TOTAL_MS / count),
+      );
+      // Первый лист выпускаем сразу, без ожидания шага.
+      this.warmupAccMs = this.warmupStepMs;
+    }
+
+    this.warmupAccMs += deltaMs;
+    while (this.warmupAccMs >= this.warmupStepMs && this.warmupQueue.length > 0) {
+      this.warmupAccMs -= this.warmupStepMs;
+      const wish = this.warmupQueue.shift();
+      if (wish) this.addWish(wish, true, false);
+    }
+
+    if (this.warmupQueue.length === 0) this.warmupActive = false;
   }
 
   /** Фоновый импульс по случайной дорожке — экран не должен выглядеть мёртвым. */
@@ -434,6 +567,9 @@ export class TreeScene {
     }
 
     this.elapsed += deltaMs;
+
+    // Разогрев выпускает стартовые листья по одному до тика фоновых импульсов.
+    this.drainWarmup(deltaMs);
 
     if (this.elapsed >= this.nextAmbientAt) {
       this.nextAmbientAt =
