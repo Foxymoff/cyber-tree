@@ -11,6 +11,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "node --loader ./lib/automod/test-loader.mjs --test",
     "format": "prettier --write .",
     "shot": "node scripts/shot.ts",
     "db:migrate": "node scripts/migrate.ts"

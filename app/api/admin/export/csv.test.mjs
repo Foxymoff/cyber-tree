@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { getSpecialty } from '../../../../config/specialties.ts';
 import { CSV_BOM, csvCell, wishesToCsv } from './csv.ts';
 
 const WISH = {
@@ -19,8 +20,10 @@ test('добавляет Excel-совместимый UTF-8 BOM', () => {
 
 test('использует точку с запятой и CRLF, сохраняя кириллицу', () => {
   const csv = wishesToCsv([WISH]);
+  const specialty = getSpecialty(WISH.specialty);
+  assert.ok(specialty);
   assert.match(csv, /^id;имя;специальность;/);
-  assert.match(csv, /\r\n1;Мария;Информационные системы и программирование;isip;/);
+  assert.equal(csv.includes(`\r\n1;Мария;${specialty.label};isip;`), true);
   assert.equal(csv.includes('\n') && !csv.includes('\r\n'), false);
 });
 
