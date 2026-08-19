@@ -26,13 +26,12 @@ export function specialtyColor(specialtyId: string): number {
 }
 
 /**
- * Насколько дорожка утоплена в тень. Глубокие ветви тише магистральных,
- * иначе крона превращается в равномерную кашу.
+ * Насколько дорожка утоплена в тень. Ветвь без тока — тёмная медь; ток по ней
+ * пускает прилёт листа (см. слой lit в сцене). Базовый уровень тёмный
+ * специально: дерево зажигается по мере наполнения, а не светит всё сразу.
  */
 function depthDimming(depth: number): number {
-  // Дорожки — это «медь в тени», раздел 8. Даже магистраль приглушена:
-  // боевую яркость экран тратит на прилёт листа, а не на фон.
-  return Math.min(0.78, 0.34 + depth * 0.075);
+  return Math.min(0.86, 0.52 + depth * 0.06);
 }
 
 /** Дорожки. Стыки намеренно оставлены встык — их закрывают пятачки. */
@@ -84,14 +83,20 @@ export function buildTreeGraphics(tree: Tree): Graphics {
 export function buildSilkPlaceholders(tree: Tree): Container {
   const container = new Container();
   const { x, y, width, height } = tree.silkArea;
-  const slots = 2;
-  const gap = 24;
-  const slotWidth = (width - gap * (slots - 1)) / slots;
 
-  for (let i = 0; i < slots; i += 1) {
+  // По центру области оставлен зазор под ствол: две рамки стоят слева и справа
+  // от корня, а не отдельной строкой под деревом. Ширина зазора — с запасом от
+  // толщины ствола, чтобы дорожка проходила между ними, не задевая рамки.
+  const trunkGap = 84;
+  const slotWidth = (width - trunkGap) / 2;
+
+  for (const left of [x, x + slotWidth + trunkGap]) {
     const slot = new Graphics();
-    const left = x + i * (slotWidth + gap);
-    slot.rect(left, y, slotWidth, height).stroke({ width: 1.5, color: PALETTE.silk, alpha: 0.28 });
+    slot.roundRect(left, y, slotWidth, height, 4).stroke({
+      width: 1.5,
+      color: PALETTE.silk,
+      alpha: 0.3,
+    });
     container.addChild(slot);
   }
 

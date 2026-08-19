@@ -92,6 +92,13 @@ export class TreeScene {
   private readonly leavesLayer = new Container();
   /** Подписи листьев: вне bloom, чтобы имена не размывались. */
   private readonly labelsLayer = new Container();
+  /**
+   * Подсвеченные пути от корня к листьям. Копятся: с каждым прилётом путь
+   * заливается медью под током и остаётся светиться, поэтому дерево зажигается
+   * по мере наполнения. Общий ствол рисуется многими путями и оттого ярче
+   * всего — ток стекается к корню.
+   */
+  private readonly litGraphics = new Graphics();
   private readonly pulseGraphics = new Graphics();
   private readonly counter: Text;
 
@@ -129,9 +136,11 @@ export class TreeScene {
     this.still = still;
     this.noise = randomFromSeed(`${tree.seed}:idle`);
 
-    // Слой свечения: дорожки, импульсы, листья.
+    // Слой свечения: тёмные дорожки, поверх — подсвеченные пути, импульсы,
+    // листья. Порядок важен: lit ложится на базовые дорожки, но под листья.
     const glowLayer = new Container();
     glowLayer.addChild(buildTreeGraphics(tree));
+    glowLayer.addChild(this.litGraphics);
     glowLayer.addChild(this.pulseGraphics);
     glowLayer.addChild(this.leavesLayer);
     // Область фильтра — ровно сцена. Без неё Pixi пересчитывает границы
@@ -175,6 +184,24 @@ export class TreeScene {
     app.stage.addChild(this.counter);
 
     app.ticker.add(this.tick);
+  }
+
+  /**
+   * Зажечь путь от корня к листу и оставить светиться.
+   *
+   * Рисуем посегментно с сужением к вершине: у корня жила толще, к листу тоньше,
+   * как ток в дорожке. Ничего не очищаем — мазки копятся, и общие нижние участки
+   * (их проходят все пути) наливаются ярче, выходя за порог bloom.
+   */
+  private energizePath(path: readonly Point[]): void {
+    for (let i = 1; i < path.length; i += 1) {
+      const t = i / (path.length - 1);
+      const width = 6.5 - 4 * t;
+      this.litGraphics
+        .moveTo(path[i - 1].x, path[i - 1].y)
+        .lineTo(path[i].x, path[i].y)
+        .stroke({ width, color: PALETTE.copperHot, alpha: 0.5, cap: 'round', join: 'round' });
+    }
   }
 
   /**
@@ -238,10 +265,16 @@ export class TreeScene {
         duration: PULSE_MIN_MS + this.noise() * (PULSE_MAX_MS - PULSE_MIN_MS),
         onArrive: () => {
           placed.flash = FLASH_MS;
+          // Путь остаётся светиться после того, как импульс добежал.
+          this.energizePath(anchor.path);
         },
       });
       // Карточка идёт одновременно с импульсом — так требует раздел 8.
       this.callbacks.onWishArrived(wish);
+    } else {
+      // Листья, уже висевшие до открытия страницы (и моковые): без импульса,
+      // но путь к ним сразу подсвечен — дерево не должно стоять тёмным.
+      this.energizePath(anchor.path);
     }
 
     this.leavesLayer.addChild(view);

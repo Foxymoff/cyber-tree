@@ -134,6 +134,12 @@ export interface TreeParams {
   minorScale: number;
   /** До какой глубины ведущая ветвь принудительно уходит наружу. */
   outwardDepth: number;
+  /**
+   * До какой удалённости от центра (0..1) магистраль стартует вертикально.
+   * Внутренние ветви идут вверх и закрывают провал над стволом, внешние
+   * расходятся диагональю.
+   */
+  centerUpUntil: number;
   maxDepth: number;
   /**
    * Поправка длины крайних магистралей относительно центральной.
@@ -161,19 +167,18 @@ export interface TreeParams {
   leafGapX: number;
   leafGapY: number;
   /**
-   * Высота слоя при раздаче. Разнесённые точки нарезаются на горизонтальные
-   * полосы этой высоты, внутри полосы порядок перемешан. Тоньше полоса —
-   * строже рост снизу вверх; толще — сильнее разброс.
+   * На сколько вертикальных столбцов делится крона при раздаче. Больше столбцов —
+   * листья расходятся по ширине заметнее, но менее строго снизу вверх.
    */
-  layerHeight: number;
+  spreadColumns: number;
   viaRadius: number;
 }
 
 export const DEFAULT_PARAMS: TreeParams = {
-  // Шесть магистралей: при них крона набирает больше 150 точек без наложений
-  // и заполняет кадр 16:9, не распадаясь на отдельные кусты. Подобрано по
-  // скриншотам 10/50/100/150.
-  branchCount: 6,
+  // Семь магистралей: три центральные идут вверх и закрывают провал над
+  // стволом, крайние расходятся по кадру. При них крона набирает больше 155
+  // точек без наложений на всех рабочих seed. Подобрано по скриншотам.
+  branchCount: 7,
   width: 1920,
   height: 1080,
   baseMargin: 96,
@@ -183,19 +188,20 @@ export const DEFAULT_PARAMS: TreeParams = {
   trunkWidth: 16,
   widthDecay: 0.78,
   minWidth: 2,
-  runLength: 168,
+  runLength: 185,
   runDecay: 0.84,
   runJitter: 0.22,
-  trunkSpread: 150,
+  trunkSpread: 140,
   minorScale: 0.7,
   outwardDepth: 3,
+  centerUpUntil: 0.34,
   maxDepth: 7,
-  crownFalloff: -0.12,
+  crownFalloff: -0.22,
   anchorMinDepth: 1,
   anchorSpacing: 17,
   leafGapX: 78,
   leafGapY: 30,
-  layerHeight: 58,
+  spreadColumns: 9,
   viaRadius: 7,
 };
 
@@ -414,13 +420,11 @@ function attachmentFor(
   const t = (index / (count - 1)) * 2 - 1; // -1 слева .. +1 справа
   const away = Math.abs(t);
   const point = { x: base.x, y: trunkTop.y + away * params.trunkSpread };
-  // Чем дальше магистраль от центра, тем положе она стартует: крайние уходят
-  // горизонтально и растаскивают крону по ширине, центральная идёт вверх.
   // 6 — влево, 7 — вверх-влево, 0 — вверх, 1 — вверх-вправо, 2 — вправо.
-  // Стартуют все диагональю, а не горизонталью: горизонтальный первый пробег
-  // выкладывает под кроной плоский рельс, и дерево распадается на отдельные
-  // кусты, стоящие на перекладине.
-  const direction = away > 0.15 ? (t < 0 ? 7 : 1) : 0;
+  // Внутренние магистрали (ближе к центру) стартуют вертикально и заполняют
+  // провал над стволом — иначе крона распадается на два куста с тёмным клином
+  // посередине. Внешние уходят диагональю и растаскивают крону по ширине.
+  const direction = away <= params.centerUpUntil ? 0 : t < 0 ? 7 : 1;
 
   return { point, direction, away, outward: t < 0 ? -1 : 1 };
 }
@@ -503,9 +507,11 @@ export function generateTree(seed: string, overrides: Partial<TreeParams> = {}):
  * число и есть ёмкость без наложений. Второй ярус — все остальные, они идут
  * в хвост и занимаются, только когда пожеланий больше ёмкости.
  *
- * Внутри первого яруса точки перекладываются по слоям: горизонтальные полосы
- * снизу вверх, внутри полосы порядок перемешан. Так дерево растёт вверх, но
- * не заполняется жёстко слева направо.
+ * Внутри первого яруса раздача идёт по кругу между вертикальными столбцами
+ * кадра: за круг берётся по одной точке с каждого столбца, снизу вверх.
+ * Столбцы покрывают всю ширину, поэтому первые же листья расходятся по ширине,
+ * а не стоят колонной в центре. Порядок столбцов в круге перемешан — заполнение
+ * не идёт жёстко слева направо.
  */
 function orderAnchors(tree: Tree, params: TreeParams, random: Random): Tree {
   // Снизу вверх: на экране ось y растёт вниз, поэтому больший y — ниже.
@@ -528,7 +534,7 @@ function orderAnchors(tree: Tree, params: TreeParams, random: Random): Tree {
     else reserve.push(anchor);
   }
 
-  const layered = scatterByLayer(spread, params.layerHeight, random);
+  const layered = roundRobinByColumn(spread, params.spreadColumns, random);
   const finalOrder = [...layered, ...reserve];
   // Размер чередуется по порядку раздачи, а не по порядку обхода дерева.
   finalOrder.forEach((anchor, order) => {
@@ -539,35 +545,56 @@ function orderAnchors(tree: Tree, params: TreeParams, random: Random): Tree {
 }
 
 /**
- * Нарезать точки (уже упорядоченные снизу вверх) на горизонтальные слои и
- * перемешать порядок внутри каждого слоя. Между слоями порядок сохраняется —
- * рост идёт снизу вверх, разброс живёт только внутри слоя.
+ * Раздать точки по кругу между вертикальными столбцами кадра.
+ *
+ * Ширина кроны делится на `columns` полос, точки раскладываются по ним и внутри
+ * столбца упорядочены снизу вверх. За круг берётся по одной точке с каждого
+ * столбца: столбцы покрывают всю ширину, поэтому даже первые листья расходятся
+ * по кадру. Порядок столбцов в круге перемешан на общем seed.
  */
-function scatterByLayer(anchors: readonly Anchor[], layerHeight: number, random: Random): Anchor[] {
+function roundRobinByColumn(anchors: readonly Anchor[], columns: number, random: Random): Anchor[] {
   if (anchors.length === 0) return [];
 
-  const result: Anchor[] = [];
-  let band: Anchor[] = [];
-  let bandBottom = anchors[0].point.y;
+  const xs = anchors.map((a) => a.point.x);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const span = Math.max(1, maxX - minX);
+  const count = Math.max(1, columns);
 
-  const flush = () => {
-    // Фишер—Йейтс на общем seed: разброс воспроизводим при одном seed.
-    for (let i = band.length - 1; i > 0; i -= 1) {
-      const j = Math.floor(random() * (i + 1));
-      [band[i], band[j]] = [band[j], band[i]];
-    }
-    result.push(...band);
-    band = [];
-  };
-
+  const groups = new Map<number, Anchor[]>();
   for (const anchor of anchors) {
-    if (bandBottom - anchor.point.y > layerHeight) {
-      flush();
-      bandBottom = anchor.point.y;
-    }
-    band.push(anchor);
+    const col = Math.min(count - 1, Math.floor(((anchor.point.x - minX) / span) * count));
+    const group = groups.get(col);
+    if (group) group.push(anchor);
+    else groups.set(col, [anchor]);
   }
-  flush();
+  // Внутри столбца — снизу вверх (больший y ниже).
+  for (const group of groups.values()) {
+    group.sort((a, b) => b.point.y - a.point.y);
+  }
+
+  const cols = [...groups.keys()];
+  const cursor = new Map<number, number>(cols.map((c) => [c, 0]));
+  const result: Anchor[] = [];
+
+  let anyLeft = true;
+  while (anyLeft) {
+    anyLeft = false;
+    // Порядок столбцов в круге перемешиваем (Фишер—Йейтс на seed).
+    for (let i = cols.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(random() * (i + 1));
+      [cols[i], cols[j]] = [cols[j], cols[i]];
+    }
+    for (const col of cols) {
+      const group = groups.get(col);
+      const at = cursor.get(col) ?? 0;
+      if (group && at < group.length) {
+        result.push(group[at]);
+        cursor.set(col, at + 1);
+        anyLeft = true;
+      }
+    }
+  }
 
   return result;
 }
@@ -620,13 +647,14 @@ function fitToFrame(tree: Tree, params: TreeParams): Tree {
       pathLength: anchor.pathLength * scale,
     })),
     base: map(tree.base),
-    // Шелкография привязана к основанию ствола, а не к центру кадра: после
-    // подгонки ствол не обязан стоять ровно посередине, и логотипы уехали бы
-    // в сторону от него.
+    // Шелкография сидит в основании ствола, обнимая корень: рамки стоят по обе
+    // стороны от места, где ствол уходит в нижнюю кромку платы. Привязка к
+    // основанию, а не к центру кадра: после подгонки ствол не строго посередине.
     silkArea: {
-      ...tree.silkArea,
-      x: map(tree.base).x - tree.silkArea.width / 2,
-      y: bottomY + 14,
+      x: map(tree.base).x - 230,
+      y: bottomY - 8,
+      width: 460,
+      height: 52,
     },
   };
 }
