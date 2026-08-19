@@ -6,8 +6,7 @@
  */
 import { Application, Container, Graphics, Rectangle, Text, TextStyle } from 'pixi.js';
 import { AdvancedBloomFilter } from 'pixi-filters';
-import { SPECIALTIES } from '@/config/specialties';
-import type { Anchor, Point, Tree } from '@/lib/tree/generate';
+import { LEAF_SIDE_OFFSET, type Anchor, type Point, type Tree } from '@/lib/tree/generate';
 import { createLeaf } from '@/lib/tree/leaf';
 import { PALETTE } from '@/lib/tree/palette';
 import { randomFromSeed } from '@/lib/tree/random';
@@ -97,8 +96,8 @@ export class TreeScene {
   private readonly counter: Text;
 
   private readonly leaves = new Map<number, PlacedLeaf>();
-  /** Сколько точек крепления уже занято на каждой магистрали. */
-  private readonly takenByBranch: number[];
+  /** Сколько точек крепления из общего пула уже занято. */
+  private taken = 0;
   private readonly pulses: ActivePulse[] = [];
 
   private elapsed = 0;
@@ -129,7 +128,6 @@ export class TreeScene {
     this.callbacks = callbacks;
     this.still = still;
     this.noise = randomFromSeed(`${tree.seed}:idle`);
-    this.takenByBranch = tree.anchorsByBranch.map(() => 0);
 
     // Слой свечения: дорожки, импульсы, листья.
     const glowLayer = new Container();
@@ -179,18 +177,16 @@ export class TreeScene {
     app.ticker.add(this.tick);
   }
 
-  /** Свободная точка крепления на нужной магистрали, снизу вверх. */
-  private takeAnchor(specialtyId: string): Anchor | null {
-    const branchIndex = SPECIALTIES.findIndex((item) => item.id === specialtyId);
-    // Пожелание с неизвестной специальностью не теряем: вешаем на первую ветвь.
-    const index = branchIndex >= 0 ? branchIndex : 0;
-    const branch = this.tree.anchorsByBranch[index];
-    if (!branch) return null;
-
-    const taken = this.takenByBranch[index];
-    if (taken >= branch.length) return null;
-    this.takenByBranch[index] = taken + 1;
-    return branch[taken];
+  /**
+   * Следующая свободная точка из общего пула. Пул упорядочен снизу вверх
+   * слоями, поэтому дерево заполняется от основания независимо от того, какой
+   * специальности пришло пожелание.
+   */
+  private takeAnchor(): Anchor | null {
+    if (this.taken >= this.tree.anchors.length) return null;
+    const anchor = this.tree.anchors[this.taken];
+    this.taken += 1;
+    return anchor;
   }
 
   /**
@@ -202,10 +198,12 @@ export class TreeScene {
   addWish(wish: PublicWish, animate: boolean): void {
     if (this.leaves.has(wish.id)) return;
 
-    const anchor = this.takeAnchor(wish.specialty);
+    const anchor = this.takeAnchor();
     if (anchor === null) return;
 
-    const color = specialtyColor(anchor.branchIndex);
+    // Цвет — от специальности пожелания, а не от того, на какую магистраль
+    // лист сел. Так цвета перемешаны, а не собраны кучками.
+    const color = specialtyColor(wish.specialty);
     const { view, label } = createLeaf({
       name: wish.name,
       color,
@@ -214,7 +212,7 @@ export class TreeScene {
     });
     // Корпус смещён от дорожки в сторону, чтобы не лежать прямо на ней.
     const x = anchor.point.x;
-    const y = anchor.point.y + anchor.side * 16;
+    const y = anchor.point.y + anchor.side * LEAF_SIDE_OFFSET;
     view.position.set(x, y);
     label.position.set(x, y);
 

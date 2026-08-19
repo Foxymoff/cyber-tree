@@ -5,21 +5,24 @@
  * структура из generate.ts, на выход — заполненные контейнеры.
  */
 import { Container, Graphics } from 'pixi.js';
-import { SPECIALTIES } from '@/config/specialties';
+import { getSpecialty } from '@/config/specialties';
 import type { Tree, Trace, Via } from './generate';
-import { PALETTE, dim, hexToNumber, mixColors } from './palette';
+import { PALETTE, dim, hexToNumber } from './palette';
 
-/** Цвет магистрали: медь, подкрашенная акцентом своей специальности. */
-export function branchColor(branchIndex: number): number {
-  if (branchIndex < 0) return PALETTE.copperDim;
-  const specialty = SPECIALTIES[branchIndex % SPECIALTIES.length];
-  return mixColors(PALETTE.copperDim, hexToNumber(specialty.color), 0.72);
+/**
+ * Цвет дорожки. Магистрали больше не соответствуют специальностям, поэтому
+ * все дорожки — медь без подкраски. Цвет несут листья, а не разводка: так это
+ * и выглядит на настоящей плате.
+ */
+export function branchColor(_branchIndex: number): number {
+  return PALETTE.copperDim;
 }
 
-/** Чистый акцент специальности — им светятся листья. */
-export function specialtyColor(branchIndex: number): number {
-  const specialty = SPECIALTIES[branchIndex % SPECIALTIES.length];
-  return hexToNumber(specialty.color);
+/** Чистый акцент специальности по её id — им светится лист. */
+export function specialtyColor(specialtyId: string): number {
+  const specialty = getSpecialty(specialtyId);
+  // Пожелание с неизвестной специальностью не теряем: светим медью под током.
+  return specialty ? hexToNumber(specialty.color) : PALETTE.copperHot;
 }
 
 /**

@@ -54,10 +54,18 @@ function computeCanvasSize(): { width: number; height: number } {
   return { width: SCENE_WIDTH * scale, height: SCENE_HEIGHT * scale };
 }
 
-/** Имя шрифта, которое подставил next/font, — Pixi нужна именно строка. */
-function cssFont(variable: string, fallback: string): string {
+/**
+ * Имя шрифта, которое подставил next/font, — Pixi нужна именно строка.
+ *
+ * Читаем переменную с переданного элемента, а не с documentElement: next/font
+ * вешает --font-mono на <main> этой страницы, а не на :root. С documentElement
+ * значение пустое, и Pixi молча берёт системный моноширинный вместо
+ * JetBrains Mono, которого требует раздел 8. Холдер канваса лежит внутри
+ * <main> и переменную наследует.
+ */
+function cssFont(element: Element, variable: string, fallback: string): string {
   if (typeof window === 'undefined') return fallback;
-  const value = getComputedStyle(document.documentElement).getPropertyValue(variable).trim();
+  const value = getComputedStyle(element).getPropertyValue(variable).trim();
   return value.length > 0 ? `${value}, ${fallback}` : fallback;
 }
 
@@ -147,7 +155,7 @@ export default function Tree({ seed, mock, still }: TreeProps) {
       const scene = new TreeScene(
         app,
         tree,
-        cssFont('--font-mono', 'ui-monospace, monospace'),
+        cssFont(holder, '--font-mono', 'ui-monospace, monospace'),
         { onWishArrived: enqueueCard, onEcho: showEcho },
         still,
       );

@@ -32,9 +32,9 @@ interface SizeSpec {
 
 const SIZES: Record<LeafSize, SizeSpec> = {
   large: {
-    fontSize: 15,
-    paddingX: 13,
-    height: 30,
+    fontSize: 14,
+    paddingX: 11,
+    height: 27,
     radius: 5,
     legCount: 4,
     legLength: 5,
@@ -42,9 +42,9 @@ const SIZES: Record<LeafSize, SizeSpec> = {
     maxChars: 14,
   },
   small: {
-    fontSize: 12,
-    paddingX: 10,
-    height: 24,
+    fontSize: 11,
+    paddingX: 9,
+    height: 22,
     radius: 4,
     legCount: 3,
     legLength: 4,

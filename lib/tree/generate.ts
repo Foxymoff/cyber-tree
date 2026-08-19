@@ -10,7 +10,6 @@
  * а не через дугу), на стыках стоят круглые пятачки переходных отверстий,
  * толщина убывает с глубиной ветвления.
  */
-import { SPECIALTIES } from '@/config/specialties';
 import { between, intBetween, randomFromSeed, type Random } from './random';
 
 export interface Point {
@@ -18,13 +17,21 @@ export interface Point {
   y: number;
 }
 
+/**
+ * На сколько корпус листа смещён от дорожки в сторону (вверх или вниз по
+ * anchor.side). Живёт здесь, а не в сцене, потому что от него зависит проверка
+ * на наложение: два листа с противоположным смещением могут сойтись центрами,
+ * даже если их точки крепления разнесены. Сцена берёт ту же величину отсюда.
+ */
+export const LEAF_SIDE_OFFSET = 12;
+
 /** Дорожка: ломаная с постоянной толщиной. */
 export interface Trace {
   points: Point[];
   width: number;
   /** Глубина ветвления: 0 — ствол. От неё зависит толщина и яркость. */
   depth: number;
-  /** Индекс магистрали в SPECIALTIES, либо -1 для ствола. */
+  /** Индекс магистрали, либо -1 для ствола. */
   branchIndex: number;
 }
 
@@ -39,7 +46,11 @@ export interface Via {
 export interface Anchor {
   id: number;
   point: Point;
-  /** Индекс магистрали в SPECIALTIES. */
+  /**
+   * Индекс магистрали, на которой лежит точка. Нужен только для пути импульса,
+   * цвет листа от него больше не зависит: размещение отвязано от специальности,
+   * цвет берётся из самого пожелания.
+   */
   branchIndex: number;
   /**
    * Полная ломаная от основания ствола до точки крепления.
@@ -64,11 +75,18 @@ export interface Tree {
   traces: Trace[];
   vias: Via[];
   /**
-   * Точки крепления, сгруппированные по магистрали и упорядоченные снизу
-   * вверх. Пожелание получает точку своей специальности по порядку, поэтому
-   * дерево заполняется естественно, а не пятнами.
+   * Единый пул точек крепления по всему дереву, в порядке раздачи. Пожелания
+   * занимают их подряд, без привязки к специальности: так одна группа не
+   * переполняет свою ветвь, пока соседние пустуют.
+   *
+   * Порядок — снизу вверх слоями, с разбросом внутри слоя: дерево растёт вверх
+   * по мере поступления пожеланий, а внутри слоя точки перемешаны, чтобы
+   * заполнение не шло жёстко слева направо. Первые spreadCount точек не
+   * накладываются друг на друга.
    */
-  anchorsByBranch: Anchor[][];
+  anchors: Anchor[];
+  /** Сколько точек в начале пула гарантированно без наложений. */
+  spreadCount: number;
   /** Основание ствола: от него бежит импульс, рядом с ним шелкография. */
   base: Point;
   /** Место под логотипы у основания. Пока пустое, SVG подставят позже. */
@@ -81,11 +99,10 @@ export interface Tree {
  */
 export interface TreeParams {
   /**
-   * Число магистралей. По умолчанию берётся из config/specialties.ts и
-   * задавать его вручную в приложении нельзя — иначе дерево разъедется
-   * с формой и админкой. Переопределение существует только для тестов и
-   * предпросмотра: надо уметь посмотреть, как выглядит крона на 3 и на 6
-   * ветвях, не подменяя общий конфиг.
+   * Число магистралей. Отвязано от количества специальностей: точки крепления
+   * теперь общий пул, и веток ровно столько, при скольких крона выглядит
+   * лучше всего и набирается нужная ёмкость. Значение по умолчанию подобрано
+   * по скриншотам; переопределяется в тестах и предпросмотре.
    */
   branchCount: number;
   width: number;
@@ -133,43 +150,52 @@ export interface TreeParams {
   /**
    * Минимальный зазор между соседними листьями при раздаче.
    *
-   * Точек крепления намеренно больше, чем нужно, и подряд идущие лежат в
-   * 19 пикселях друг от друга — это втрое меньше корпуса листа. Если раздавать
-   * их подряд, первые же десять пожеланий слипнутся в кучу у основания ветви.
-   * Поэтому раздача идёт в два яруса: сначала разнесённые не ближе этого
-   * зазора, и лишь когда они кончились — промежуточные.
+   * Кандидатов на кроне намеренно больше, чем нужно, и подряд идущие лежат
+   * вплотную. Раздача идёт в два яруса по всему дереву: сначала точки,
+   * разнесённые не ближе этого зазора (они не накладываются), и лишь когда
+   * они кончились — промежуточные.
    *
    * Зазор задан габаритом корпуса, а не радиусом: лист вытянут по горизонтали,
    * и круговая проверка отсекала бы вполне пригодные точки этажом выше.
    */
   leafGapX: number;
   leafGapY: number;
+  /**
+   * Высота слоя при раздаче. Разнесённые точки нарезаются на горизонтальные
+   * полосы этой высоты, внутри полосы порядок перемешан. Тоньше полоса —
+   * строже рост снизу вверх; толще — сильнее разброс.
+   */
+  layerHeight: number;
   viaRadius: number;
 }
 
 export const DEFAULT_PARAMS: TreeParams = {
-  branchCount: SPECIALTIES.length,
+  // Шесть магистралей: при них крона набирает больше 150 точек без наложений
+  // и заполняет кадр 16:9, не распадаясь на отдельные кусты. Подобрано по
+  // скриншотам 10/50/100/150.
+  branchCount: 6,
   width: 1920,
   height: 1080,
   baseMargin: 96,
   sideMargin: 96,
   topMargin: 72,
-  trunkLength: 300,
+  trunkLength: 250,
   trunkWidth: 16,
-  widthDecay: 0.74,
+  widthDecay: 0.78,
   minWidth: 2,
-  runLength: 178,
-  runDecay: 0.83,
+  runLength: 168,
+  runDecay: 0.84,
   runJitter: 0.22,
   trunkSpread: 150,
-  minorScale: 0.66,
+  minorScale: 0.7,
   outwardDepth: 3,
-  maxDepth: 6,
+  maxDepth: 7,
   crownFalloff: -0.12,
   anchorMinDepth: 1,
-  anchorSpacing: 19,
-  leafGapX: 104,
+  anchorSpacing: 17,
+  leafGapX: 78,
   leafGapY: 30,
+  layerHeight: 58,
   viaRadius: 7,
 };
 
@@ -418,7 +444,9 @@ export function generateTree(seed: string, overrides: Partial<TreeParams> = {}):
     return anchorId;
   };
 
-  const anchorsByBranch: Anchor[][] = [];
+  // Все точки крепления собираются в один пул. Порядок раздачи назначается
+  // потом, глобально по всему дереву, а не внутри каждой магистрали.
+  const allAnchors: Anchor[] = [];
 
   for (let index = 0; index < branchCount; index += 1) {
     const attachment = attachmentFor(base, trunkTop, index, branchCount, params);
@@ -442,31 +470,7 @@ export function generateTree(seed: string, overrides: Partial<TreeParams> = {}):
     // Путь от основания: подъём по стволу до места крепления.
     const pathToStart = [base, startPoint];
     grow(context, startPoint, attachment.direction, 1, pathToStart);
-
-    // Снизу вверх: на экране ось y растёт вниз, поэтому больший y — ниже.
-    const ordered = context.anchors.sort((a, b) => b.point.y - a.point.y || a.point.x - b.point.x);
-
-    // Первый ярус: точки, разнесённые не ближе leafGap. Жадный проход снизу
-    // вверх, поэтому дерево заполняется от основания и без наложений.
-    const spread: Anchor[] = [];
-    const reserve: Anchor[] = [];
-    for (const anchor of ordered) {
-      const farEnough = spread.every(
-        (taken) =>
-          Math.abs(taken.point.x - anchor.point.x) >= params.leafGapX ||
-          Math.abs(taken.point.y - anchor.point.y) >= params.leafGapY,
-      );
-      if (farEnough) spread.push(anchor);
-      else reserve.push(anchor);
-    }
-
-    const finalOrder = [...spread, ...reserve];
-    // Размер чередуется по порядку раздачи, а не по порядку обхода.
-    finalOrder.forEach((anchor, order) => {
-      anchor.size = order % 2 === 0 ? 'large' : 'small';
-    });
-
-    anchorsByBranch.push(finalOrder);
+    allAnchors.push(...context.anchors);
   }
 
   const raw: Tree = {
@@ -475,7 +479,8 @@ export function generateTree(seed: string, overrides: Partial<TreeParams> = {}):
     height: params.height,
     traces,
     vias,
-    anchorsByBranch,
+    anchors: allAnchors,
+    spreadCount: 0,
     base,
     silkArea: {
       x: base.x - 240,
@@ -485,7 +490,86 @@ export function generateTree(seed: string, overrides: Partial<TreeParams> = {}):
     },
   };
 
-  return fitToFrame(raw, params);
+  // Порядок раздачи назначается в экранных координатах, поэтому сначала
+  // подгонка под кадр, затем упорядочивание пула.
+  return orderAnchors(fitToFrame(raw, params), params, random);
+}
+
+/**
+ * Назначить порядок раздачи точкам крепления по всему дереву.
+ *
+ * Два яруса. Первый — жадный отбор снизу вверх: точка берётся, если она не
+ * ближе габарита корпуса ко всем уже взятым. Эти точки не накладываются, их
+ * число и есть ёмкость без наложений. Второй ярус — все остальные, они идут
+ * в хвост и занимаются, только когда пожеланий больше ёмкости.
+ *
+ * Внутри первого яруса точки перекладываются по слоям: горизонтальные полосы
+ * снизу вверх, внутри полосы порядок перемешан. Так дерево растёт вверх, но
+ * не заполняется жёстко слева направо.
+ */
+function orderAnchors(tree: Tree, params: TreeParams, random: Random): Tree {
+  // Снизу вверх: на экране ось y растёт вниз, поэтому больший y — ниже.
+  const bottomUp = [...tree.anchors].sort((a, b) => b.point.y - a.point.y || a.point.x - b.point.x);
+
+  // Проверяем зазор по фактическому центру корпуса, а не по точке на дорожке:
+  // смещение листа в сторону (side) может свести центры двух листьев, чьи
+  // точки крепления формально разнесены по вертикали.
+  const centerY = (anchor: Anchor): number => anchor.point.y + anchor.side * LEAF_SIDE_OFFSET;
+
+  const spread: Anchor[] = [];
+  const reserve: Anchor[] = [];
+  for (const anchor of bottomUp) {
+    const farEnough = spread.every(
+      (taken) =>
+        Math.abs(taken.point.x - anchor.point.x) >= params.leafGapX ||
+        Math.abs(centerY(taken) - centerY(anchor)) >= params.leafGapY,
+    );
+    if (farEnough) spread.push(anchor);
+    else reserve.push(anchor);
+  }
+
+  const layered = scatterByLayer(spread, params.layerHeight, random);
+  const finalOrder = [...layered, ...reserve];
+  // Размер чередуется по порядку раздачи, а не по порядку обхода дерева.
+  finalOrder.forEach((anchor, order) => {
+    anchor.size = order % 2 === 0 ? 'large' : 'small';
+  });
+
+  return { ...tree, anchors: finalOrder, spreadCount: spread.length };
+}
+
+/**
+ * Нарезать точки (уже упорядоченные снизу вверх) на горизонтальные слои и
+ * перемешать порядок внутри каждого слоя. Между слоями порядок сохраняется —
+ * рост идёт снизу вверх, разброс живёт только внутри слоя.
+ */
+function scatterByLayer(anchors: readonly Anchor[], layerHeight: number, random: Random): Anchor[] {
+  if (anchors.length === 0) return [];
+
+  const result: Anchor[] = [];
+  let band: Anchor[] = [];
+  let bandBottom = anchors[0].point.y;
+
+  const flush = () => {
+    // Фишер—Йейтс на общем seed: разброс воспроизводим при одном seed.
+    for (let i = band.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(random() * (i + 1));
+      [band[i], band[j]] = [band[j], band[i]];
+    }
+    result.push(...band);
+    band = [];
+  };
+
+  for (const anchor of anchors) {
+    if (bandBottom - anchor.point.y > layerHeight) {
+      flush();
+      bandBottom = anchor.point.y;
+    }
+    band.push(anchor);
+  }
+  flush();
+
+  return result;
 }
 
 /**
@@ -529,14 +613,12 @@ function fitToFrame(tree: Tree, params: TreeParams): Tree {
       width: trace.width * scale,
     })),
     vias: tree.vias.map((via) => ({ ...via, point: map(via.point), radius: via.radius * scale })),
-    anchorsByBranch: tree.anchorsByBranch.map((branch) =>
-      branch.map((anchor) => ({
-        ...anchor,
-        point: map(anchor.point),
-        path: anchor.path.map(map),
-        pathLength: anchor.pathLength * scale,
-      })),
-    ),
+    anchors: tree.anchors.map((anchor) => ({
+      ...anchor,
+      point: map(anchor.point),
+      path: anchor.path.map(map),
+      pathLength: anchor.pathLength * scale,
+    })),
     base: map(tree.base),
     // Шелкография привязана к основанию ствола, а не к центру кадра: после
     // подгонки ствол не обязан стоять ровно посередине, и логотипы уехали бы
@@ -549,7 +631,7 @@ function fitToFrame(tree: Tree, params: TreeParams): Tree {
   };
 }
 
-/** Сколько всего листьев дерево способно принять. */
+/** Сколько листьев дерево принимает без наложений. */
 export function anchorCapacity(tree: Tree): number {
-  return tree.anchorsByBranch.reduce((sum, branch) => sum + branch.length, 0);
+  return tree.spreadCount;
 }
