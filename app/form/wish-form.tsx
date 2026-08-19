@@ -205,7 +205,7 @@ export function WishForm() {
             </option>
             {SPECIALTIES.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.label}
+                {item.short} — {item.label}
               </option>
             ))}
           </select>
