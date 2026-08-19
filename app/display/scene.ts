@@ -187,7 +187,27 @@ export class TreeScene {
     // Счётчик вне мира: он не должен ездить вместе с камерой.
     app.stage.addChild(this.counter);
 
+    // Ствол всегда под током: даже пустое дерево читается как «тёмный силуэт
+    // плюс светящийся ствол», а не облысевшая заготовка. Это единственный
+    // always-on участок; пути листьев и их свечение работают как прежде.
+    this.energizeTrunk();
+
     app.ticker.add(this.tick);
+  }
+
+  /** Подсветить ствол один раз при старте — он горит независимо от листьев. */
+  private energizeTrunk(): void {
+    const trunk = this.tree.traces.find((trace) => trace.depth === 0);
+    if (!trunk) return;
+
+    const points = trunk.points;
+    const width = Math.max(6, trunk.width * 0.5);
+    for (let i = 1; i < points.length; i += 1) {
+      this.litGraphics
+        .moveTo(points[i - 1].x, points[i - 1].y)
+        .lineTo(points[i].x, points[i].y)
+        .stroke({ width, color: PALETTE.copperHot, alpha: 0.5, cap: 'round', join: 'round' });
+    }
   }
 
   /**
