@@ -167,6 +167,7 @@ export default function Tree({ seed, mock, still }: TreeProps) {
       // вглядываясь в дерево.
       (window as unknown as { cyberTree?: unknown }).cyberTree = {
         leafCount: () => scene.leafCount,
+        warmingUp: () => scene.warmingUp,
       };
 
       // Моковый режим: дерево наполняется тестовыми листьями без обращения
@@ -228,7 +229,15 @@ export default function Tree({ seed, mock, still }: TreeProps) {
 
   useWishFeed(
     {
-      onArrive: (wish, initial) => sceneRef.current?.addWish(wish, !initial),
+      onArrive: (wish, initial) => {
+        const scene = sceneRef.current;
+        if (!scene) return;
+        // Стартовые (первая загрузка) и всё, что пришло, пока идёт разогрев,
+        // ставим в очередь разогрева — влетают по одному, в траектории роста.
+        // Живые пожелания после разогрева прилетают сразу, с карточкой.
+        if (initial || scene.warmingUp) scene.enqueueWarmup(wish);
+        else scene.addWish(wish, true);
+      },
       onRemove: (id) => sceneRef.current?.removeWish(id),
     },
     // В моковом режиме к базе не ходим вовсе.

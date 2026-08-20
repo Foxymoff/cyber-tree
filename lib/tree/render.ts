@@ -26,17 +26,39 @@ export function specialtyColor(specialtyId: string): number {
 }
 
 /**
+ * Косметика незажжённых веток. Меняется ТОЛЬКО отрисовка базового слоя —
+ * геометрию, пути и anchor'ы не трогаем. Убранные сегменты по-прежнему
+ * существуют в данных: когда на них садится лист, их рисует слой lit (см.
+ * сцену), поэтому ёмкость точек крепления не страдает.
+ *
+ * Глубже этого уровня незажжённые сегменты не рисуем: тончайшие концевые
+ * прутики только рябят и не собираются в силуэт. Заполнение идёт снизу вверх,
+ * так что при ожидаемых числах листьев эти концы пустые.
+ */
+const UNLIT_MAX_DEPTH = 5;
+
+/**
+ * Пятачки мельче этого радиуса не рисуем: это дробные точки на голых концах
+ * кроны, они рябят и не читаются как деталь. Крупные пятачки магистральных
+ * стыков (радиус больше порога) остаются — они держат «плату».
+ */
+const VIA_MIN_RADIUS = 4.5;
+
+/**
  * Насколько дорожка утоплена в тень. Ветвь без тока — тёмная медь; ток по ней
- * пускает прилёт листа (см. слой lit в сцене). Базовый уровень тёмный
- * специально: дерево зажигается по мере наполнения, а не светит всё сразу.
+ * пускает прилёт листа (см. слой lit в сцене). Кривая крутая: глубокие ветви
+ * почти сливаются с фоном и читаются силуэтом, а не деталью переднего плана.
  */
 function depthDimming(depth: number): number {
-  return Math.min(0.86, 0.52 + depth * 0.06);
+  return Math.min(0.9, 0.5 + depth * 0.08);
 }
 
 /** Дорожки. Стыки намеренно оставлены встык — их закрывают пятачки. */
 export function drawTraces(target: Graphics, traces: readonly Trace[]): void {
   for (const trace of traces) {
+    // Тончайшие концевые сегменты не рисуем — см. UNLIT_MAX_DEPTH.
+    if (trace.depth > UNLIT_MAX_DEPTH) continue;
+
     const [first, ...rest] = trace.points;
     target.moveTo(first.x, first.y);
     for (const point of rest) target.lineTo(point.x, point.y);
@@ -58,7 +80,11 @@ export function drawTraces(target: Graphics, traces: readonly Trace[]): void {
  */
 export function drawVias(target: Graphics, vias: readonly Via[]): void {
   for (const via of vias) {
-    const color = dim(branchColor(via.branchIndex), 0.1);
+    // Мелкие пятачки на голых концах кроны не рисуем — они рябят.
+    if (via.radius < VIA_MIN_RADIUS) continue;
+
+    // Оставшиеся тоже притоплены: пятачок — служебная деталь фона, а не акцент.
+    const color = dim(branchColor(via.branchIndex), 0.45);
     target.circle(via.point.x, via.point.y, via.radius).fill({ color });
     target.circle(via.point.x, via.point.y, via.radius * 0.42).fill({ color: PALETTE.bg });
   }
