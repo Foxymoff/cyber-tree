@@ -34,30 +34,59 @@
   position: absolute;
   left: 50%;
   top: 50%;
-  transform: translate(-50%, -50%) scale(0.96);
-  width: min(72vw, 1180px);
+  /* Уход слегка уводит карточку вверх и притапливает — мягкое растворение. */
+  transform: translate(-50%, calc(-50% - 14px)) scale(0.94);
+  width: min(80vw, 1360px);
+  max-width: 80vw;
   padding: 3.2vh 4vw;
   box-sizing: border-box;
   text-align: center;
   opacity: 0;
+  filter: blur(5px);
   pointer-events: none;
+  /*
+   * Переход в ЭТО (скрытое) состояние отыгрывается при снятии .cardVisible —
+   * то есть это и есть исчезание. Держим его долгим и мягким: раньше карточка
+   * пропадала рывком.
+   */
   transition:
-    opacity 420ms ease,
-    transform 420ms ease;
+    opacity 900ms cubic-bezier(0.33, 0, 0.2, 1),
+    transform 900ms cubic-bezier(0.33, 0, 0.2, 1),
+    filter 900ms cubic-bezier(0.33, 0, 0.2, 1);
+  will-change: opacity, transform, filter;
 }
 
 .cardVisible {
   opacity: 1;
+  filter: blur(0);
   transform: translate(-50%, -50%) scale(1);
+  /* Появление быстрее ухода, с доводящим замедлением в конце. */
+  transition:
+    opacity 520ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 560ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 520ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .cardText {
   margin: 0;
   font-family: var(--font-display), system-ui, sans-serif;
-  font-size: clamp(2.4rem, 4.4vw, 5rem);
+  font-size: clamp(2.2rem, 4.2vw, 4.8rem);
   line-height: 1.16;
   color: var(--silk);
   text-wrap: balance;
+  /*
+   * Слитные строки без пробелов (ссылки, «аааааа…» длиной под предел формы)
+   * переносим принудительно — иначе карточка уезжает за край экрана.
+   */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+/* Длинный текст — мельче и чуть плотнее, чтобы уместиться по высоте и читаться. */
+.cardLong .cardText {
+  font-size: clamp(1.6rem, 3vw, 3.4rem);
+  line-height: 1.24;
 }
 
 .cardMeta {

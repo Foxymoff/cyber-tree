@@ -78,6 +78,11 @@ function segmentLengths(path: readonly Point[]): { lengths: number[]; total: num
   return { lengths, total };
 }
 
+/** Мягкая кривая: голова импульса разгоняется и тормозит без рывка на концах. */
+function easeInOutSine(t: number): number {
+  return -(Math.cos(Math.PI * t) - 1) / 2;
+}
+
 /** Точка на ломаной по доле пройденного пути. */
 function pointAt(path: readonly Point[], lengths: readonly number[], distance: number): Point {
   let left = distance;
@@ -484,12 +489,16 @@ export class TreeScene {
     for (let i = this.pulses.length - 1; i >= 0; i -= 1) {
       const pulse = this.pulses[i];
       pulse.elapsed += deltaMs;
-      const progress = Math.min(1, pulse.elapsed / pulse.duration);
-      const head = pulse.total * progress;
+      const raw = Math.min(1, pulse.elapsed / pulse.duration);
+      // Голова идёт по мягкой кривой: без рывка на старте и торможение к листу.
+      const head = pulse.total * easeInOutSine(raw);
+      // Огибающая яркости: импульс проявляется у корня и гаснет у вершины, а не
+      // выскакивает и пропадает целиком — так фоновые частицы идут без рывков.
+      const envelope = Math.min(1, raw / 0.12) * Math.min(1, (1 - raw) / 0.14);
 
-      // Хвост: несколько точек позади головы, ярче к голове.
+      // Хвост: точки позади головы, ярче к голове. Шагов побольше — плавнее градиент.
       const tail = Math.min(120, pulse.total * 0.22);
-      const steps = 9;
+      const steps = 14;
       for (let s = 0; s < steps; s += 1) {
         const back = (tail * s) / steps;
         const distance = head - back;
@@ -498,10 +507,12 @@ export class TreeScene {
         const fade = 1 - s / steps;
         this.pulseGraphics
           .circle(point.x, point.y, 1.6 + fade * 3.4)
-          .fill({ color: pulse.color, alpha: fade * 0.9 });
+          .fill({ color: pulse.color, alpha: fade * 0.9 * envelope });
       }
 
-      if (progress >= 1) {
+      // Завершение — по реальному прогрессу, чтобы прилёт (onArrive) не сдвигался
+      // из-за сглаживания головы: easeInOutSine(1) = 1, момент тот же.
+      if (raw >= 1) {
         pulse.onArrive?.();
         this.pulses.splice(i, 1);
       }
