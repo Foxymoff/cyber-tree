@@ -1,0 +1,129 @@
+/*
+ * Корневая страница — витрина проекта. Палитра и шрифты общие с разделом 8 ТЗ
+ * (те же токены --bg/--silk/--copper-*, Unbounded/Golos/JetBrains Mono), чтобы
+ * не выбиваться из формы и дерева.
+ */
+
+.shell {
+  min-height: 100svh;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  align-items: center;
+  justify-items: center;
+  gap: 40px;
+  padding: 48px 20px max(28px, env(safe-area-inset-bottom));
+  text-align: center;
+  /* Тёплое свечение за заголовком — отголосок bloom дерева, еле заметное. */
+  background: radial-gradient(
+    ellipse 80% 55% at 50% 38%,
+    color-mix(in srgb, var(--copper-hot) 9%, transparent),
+    transparent 70%
+  );
+}
+
+.hero {
+  width: min(100%, 640px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--copper-hot);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: clamp(0.72rem, 2.4vw, 0.86rem);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-weight: 700;
+  font-size: clamp(2.4rem, 10.5vw, 5rem);
+  line-height: 1.05;
+  color: var(--silk);
+  text-wrap: balance;
+}
+
+.lede {
+  margin: 0;
+  max-width: 34ch;
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-size: clamp(1rem, 3.8vw, 1.25rem);
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--silk) 82%, transparent);
+  text-wrap: balance;
+}
+
+.cta {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 54px;
+  padding: 15px 36px;
+  border: 1px solid var(--copper-hot);
+  background: var(--copper-hot);
+  color: var(--bg);
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-size: clamp(1rem, 3.8vw, 1.15rem);
+  font-weight: 800;
+  text-decoration: none;
+  box-shadow: 0 0 32px color-mix(in srgb, var(--copper-hot) 28%, transparent);
+  transition:
+    filter 160ms ease,
+    transform 160ms ease;
+}
+
+.cta:hover {
+  filter: brightness(1.08);
+}
+
+.cta:active {
+  transform: translateY(1px);
+}
+
+.cta:focus-visible {
+  outline: 2px solid var(--silk);
+  outline-offset: 3px;
+}
+
+/* Логотипы — одноцветная шелкография --silk, как у основания дерева. Заливаем
+   фон цветом --silk и вырезаем по форме SVG маской: любой исходный цвет логотипа
+   становится ровным --silk. */
+.logos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(24px, 6vw, 48px);
+}
+
+.logo {
+  display: block;
+  height: clamp(26px, 6.5vw, 38px);
+  background-color: var(--silk);
+  opacity: 0.78;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.college {
+  aspect-ratio: 220 / 40;
+  -webkit-mask-image: url(/logos/college.svg);
+  mask-image: url(/logos/college.svg);
+}
+
+.ui {
+  aspect-ratio: 431 / 101;
+  -webkit-mask-image: url(/logos/ui.svg);
+  mask-image: url(/logos/ui.svg);
+}
