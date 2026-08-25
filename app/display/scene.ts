@@ -38,6 +38,17 @@ const WARMUP_MIN_STEP_MS = 140;
  */
 const FILL_PHASE_WEIGHT = 2.4;
 
+/**
+ * Адрес формы для подписи-ссылки сверху по центру. Голый, без https:// и хвостов.
+ * Сам QR на экране не рисуем — он на печатной табличке рядом с панелью, а дерево
+ * остаётся чистым арт-объектом. Подпись дублирует ту ссылку.
+ */
+const SHORT_URL = 'cyber-tree.vercel.app/form';
+/** Отступ подписи-ссылки от верхнего края сцены. */
+const LINK_MARGIN_TOP = 18;
+/** Кегль подписи-ссылки: крупнее счётчика и не мельче подписи специальности на карточке. */
+const LINK_CAPTION_SIZE = 32;
+
 export interface SceneCallbacks {
   /** Показать карточку пожелания поверх экрана. */
   onWishArrived: (wish: PublicWish) => void;
@@ -76,6 +87,11 @@ function segmentLengths(path: readonly Point[]): { lengths: number[]; total: num
     total += length;
   }
   return { lengths, total };
+}
+
+/** Мягкая кривая: голова импульса разгоняется и тормозит без рывка на концах. */
+function easeInOutSine(t: number): number {
+  return -(Math.cos(Math.PI * t) - 1) / 2;
 }
 
 /** Точка на ломаной по доле пройденного пути. */
@@ -214,6 +230,9 @@ export class TreeScene {
     // Счётчик вне мира: он не должен ездить вместе с камерой.
     app.stage.addChild(this.counter);
 
+    // Подпись-ссылка сверху по центру — вне мира и вне bloom, как счётчик.
+    this.mountLinkCaption();
+
     // Ствол всегда под током: даже пустое дерево читается как «тёмный силуэт
     // плюс светящийся ствол», а не облысевшая заготовка. Это единственный
     // always-on участок; пути листьев и их свечение работают как прежде.
@@ -235,6 +254,28 @@ export class TreeScene {
         .lineTo(points[i].x, points[i].y)
         .stroke({ width, color: PALETTE.copperHot, alpha: 0.5, cap: 'round', join: 'round' });
     }
+  }
+
+  /**
+   * Подпись-ссылка сверху по центру. Дублирует QR с печатной таблички рядом с
+   * панелью; сам QR на экране не рисуем — дерево остаётся чистым арт-объектом.
+   *
+   * Вне мира и вне bloom (на app.stage, как счётчик): без дрейфа камеры и без
+   * размытия свечением. Одной строкой, перенос не нужен — адрес короткий.
+   */
+  private mountLinkCaption(): void {
+    const caption = new Text({
+      text: SHORT_URL,
+      style: new TextStyle({
+        fontFamily: this.fontFamily,
+        fontSize: LINK_CAPTION_SIZE,
+        fill: PALETTE.silk,
+        letterSpacing: 1.2,
+      }),
+    });
+    caption.anchor.set(0.5, 0);
+    caption.position.set(this.tree.width / 2, LINK_MARGIN_TOP);
+    this.app.stage.addChild(caption);
   }
 
   /**
@@ -484,12 +525,16 @@ export class TreeScene {
     for (let i = this.pulses.length - 1; i >= 0; i -= 1) {
       const pulse = this.pulses[i];
       pulse.elapsed += deltaMs;
-      const progress = Math.min(1, pulse.elapsed / pulse.duration);
-      const head = pulse.total * progress;
+      const raw = Math.min(1, pulse.elapsed / pulse.duration);
+      // Голова идёт по мягкой кривой: без рывка на старте и торможение к листу.
+      const head = pulse.total * easeInOutSine(raw);
+      // Огибающая яркости: импульс проявляется у корня и гаснет у вершины, а не
+      // выскакивает и пропадает целиком — так фоновые частицы идут без рывков.
+      const envelope = Math.min(1, raw / 0.12) * Math.min(1, (1 - raw) / 0.14);
 
-      // Хвост: несколько точек позади головы, ярче к голове.
+      // Хвост: точки позади головы, ярче к голове. Шагов побольше — плавнее градиент.
       const tail = Math.min(120, pulse.total * 0.22);
-      const steps = 9;
+      const steps = 14;
       for (let s = 0; s < steps; s += 1) {
         const back = (tail * s) / steps;
         const distance = head - back;
@@ -498,10 +543,12 @@ export class TreeScene {
         const fade = 1 - s / steps;
         this.pulseGraphics
           .circle(point.x, point.y, 1.6 + fade * 3.4)
-          .fill({ color: pulse.color, alpha: fade * 0.9 });
+          .fill({ color: pulse.color, alpha: fade * 0.9 * envelope });
       }
 
-      if (progress >= 1) {
+      // Завершение — по реальному прогрессу, чтобы прилёт (onArrive) не сдвигался
+      // из-за сглаживания головы: easeInOutSine(1) = 1, момент тот же.
+      if (raw >= 1) {
         pulse.onArrive?.();
         this.pulses.splice(i, 1);
       }

@@ -27,15 +27,32 @@ import { useWishFeed } from './use-wish-feed';
 const SCENE_WIDTH = 1920;
 const SCENE_HEIGHT = 1080;
 
-/** Выше этого поднимать resolution бессмысленно: память тратится, глаз не видит. */
-const MAX_RESOLUTION = 3;
+/**
+ * Потолок resolution. На 4К родное разрешение и так даёт 2 (см. computeResolution),
+ * а выше только зря жрёт закраску и роняет fps — поэтому 2, не больше.
+ */
+const MAX_RESOLUTION = 2;
 
-/** Сколько держится карточка пожелания, раздел 8 ТЗ. */
-const CARD_MS = 6000;
+/** Границы показа карточки: короткую читаем за 4 с, длинную держим дольше. */
+const CARD_MIN_MS = 4000;
+const CARD_MAX_MS = 10000;
+/** Добавка за символ. 120 символов (предел формы) добивают ровно до максимума. */
+const CARD_MS_PER_CHAR = 50;
+/** Длительность плавного ухода карточки — совпадает с CSS (.card transition). */
+const CARD_FADE_MS = 900;
 /** Пауза между карточками, чтобы они не наезжали друг на друга. */
 const CARD_GAP_MS = 600;
+/** С какой длины текст считаем длинным и переключаем карточку на мелкий шрифт. */
+const CARD_LONG_CHARS = 78;
 /** Сколько висит негромкое всплытие старого пожелания. */
 const ECHO_MS = 7000;
+/** Длительность плавного ухода всплытия — совпадает с CSS (.echo transition). */
+const ECHO_FADE_MS = 1200;
+
+/** Время показа карточки по длине пожелания, раздел 8 ТЗ (плюс доводка). */
+function cardDurationMs(wish: string): number {
+  return Math.min(CARD_MAX_MS, CARD_MIN_MS + wish.length * CARD_MS_PER_CHAR);
+}
 
 export interface TreeProps {
   seed: string;
@@ -44,6 +61,13 @@ export interface TreeProps {
   still: boolean;
 }
 
+/**
+ * Родное разрешение рендера под плотность экрана. Не просто devicePixelRatio:
+ * сцена всегда 1920 логических единиц и растянута на всю панель, поэтому родной
+ * буфер должен покрыть физические пиксели канваса (cssWidth * dpr), а его доля
+ * от 1920 и есть resolution. На 4К при dpr=1 это даёт 2 (чистый dpr дал бы 1 и
+ * мыло от растяжения), на панели 1080p — 1. Пол 1, потолок MAX_RESOLUTION.
+ */
 function computeResolution(cssWidth: number): number {
   const ratio = typeof window === 'undefined' ? 1 : (window.devicePixelRatio ?? 1);
   return Math.min(MAX_RESOLUTION, Math.max(1, (cssWidth * ratio) / SCENE_WIDTH));
@@ -73,8 +97,13 @@ export default function Tree({ seed, mock, still }: TreeProps) {
   const holderRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<TreeScene | null>(null);
 
+  // Контент карточки держим отдельно от видимости: при уходе снимаем класс
+  // видимости, а текст оставляем — тогда он тает ВМЕСТЕ с карточкой, а не гаснет
+  // мгновенно (это и был рывок исчезания).
   const [card, setCard] = useState<PublicWish | null>(null);
+  const [cardShown, setCardShown] = useState(false);
   const [echo, setEcho] = useState<PublicWish | null>(null);
+  const [echoShown, setEchoShown] = useState(false);
 
   // Пожелания приходят пачками: модератор одобряет несколько подряд, и в один
   // ответ опроса прилетает три-четыре штуки. Карточки становятся в очередь и
@@ -91,13 +120,21 @@ export default function Tree({ seed, mock, still }: TreeProps) {
 
     cardBusy.current = true;
     setCard(next);
+    // Видимость поднимаем на следующем кадре: элемент только что получил контент
+    // в скрытом состоянии, и переход тогда отыграется от opacity 0 — плавно.
+    requestAnimationFrame(() => setCardShown(true));
+
+    // Время показа — по длине текста: короткое читается за 4 с, длинное висит
+    // дольше, до 10 с (раздел 8 ТЗ).
     window.setTimeout(() => {
-      setCard(null);
+      // Гасим видимость, контент оставляем — текст уходит плавно вместе с карточкой.
+      setCardShown(false);
       window.setTimeout(() => {
+        setCard(null);
         cardBusy.current = false;
         pump();
-      }, CARD_GAP_MS);
-    }, CARD_MS);
+      }, CARD_FADE_MS + CARD_GAP_MS);
+    }, cardDurationMs(next.wish));
   }, []);
 
   const enqueueCard = useCallback(
@@ -112,7 +149,12 @@ export default function Tree({ seed, mock, still }: TreeProps) {
     // Всплытие не должно спорить с карточкой прилёта за внимание.
     if (cardBusy.current) return;
     setEcho(wish);
-    window.setTimeout(() => setEcho(null), ECHO_MS);
+    requestAnimationFrame(() => setEchoShown(true));
+    window.setTimeout(() => {
+      setEchoShown(false);
+      // Контент убираем только после того, как всплытие плавно погасло.
+      window.setTimeout(() => setEcho(null), ECHO_FADE_MS);
+    }, ECHO_MS);
   }, []);
 
   useEffect(() => {
@@ -137,7 +179,9 @@ export default function Tree({ seed, mock, still }: TreeProps) {
         background: PALETTE.bg,
         antialias: true,
         resolution: computeResolution(size.width),
-        autoDensity: false,
+        // Плотность отдаём Pixi, но CSS-размер канваса ставим сами (леттербокс
+        // 16:9 ниже) — поэтому стиль всё равно переопределяем после init и на ресайзе.
+        autoDensity: true,
         powerPreference: 'high-performance',
       });
 
@@ -179,11 +223,17 @@ export default function Tree({ seed, mock, still }: TreeProps) {
       handleResize = () => {
         if (!application) return;
         const next = computeCanvasSize();
-        application.renderer.resolution = computeResolution(next.width);
+        // Именно resize, а не присваивание renderer.resolution: буфер под новую
+        // плотность пересобирается только так. Иначе после смены размера окна
+        // (оконный→полноэкранный на панели) остаётся старый буфер и картинка мылит.
+        application.renderer.resize(SCENE_WIDTH, SCENE_HEIGHT, computeResolution(next.width));
         application.canvas.style.width = `${next.width}px`;
         application.canvas.style.height = `${next.height}px`;
       };
       window.addEventListener('resize', handleResize);
+      // Разовая перепригонка на следующем кадре: если на старте раскладка ещё не
+      // устоялась (переход в полный экран), берём финальный размер и плотность.
+      requestAnimationFrame(() => handleResize?.());
     };
 
     void start();
@@ -246,27 +296,37 @@ export default function Tree({ seed, mock, still }: TreeProps) {
 
   const cardSpecialty = card ? getSpecialty(card.specialty) : undefined;
   const echoSpecialty = echo ? getSpecialty(echo.specialty) : undefined;
+  // Длинному тексту — мелкий шрифт (класс cardLong), чтобы уместился по высоте.
+  const cardLong = (card?.wish?.length ?? 0) > CARD_LONG_CHARS;
 
   return (
     <>
       <div ref={holderRef} className={styles.canvasHolder} />
 
-      <div className={`${styles.card} ${card ? styles.cardVisible : ''}`} aria-hidden={!card}>
+      <div
+        className={`${styles.card} ${cardShown ? styles.cardVisible : ''} ${
+          cardLong ? styles.cardLong : ''
+        }`}
+        aria-hidden={!cardShown}
+      >
         <p className={styles.cardText}>{card?.wish}</p>
         <p
           className={styles.cardMeta}
           style={{ color: cardSpecialty?.color ?? 'var(--copper-hot)' }}
         >
           {card?.name}
-          {cardSpecialty ? ` · ${cardSpecialty.label}` : ''}
+          {cardSpecialty ? ` · ${cardSpecialty.short}` : ''}
         </p>
       </div>
 
-      <div className={`${styles.echo} ${echo ? styles.echoVisible : ''}`} aria-hidden={!echo}>
+      <div
+        className={`${styles.echo} ${echoShown ? styles.echoVisible : ''}`}
+        aria-hidden={!echoShown}
+      >
         <p className={styles.echoText}>{echo?.wish}</p>
         <p className={styles.echoMeta}>
           {echo?.name}
-          {echoSpecialty ? ` · ${echoSpecialty.label}` : ''}
+          {echoSpecialty ? ` · ${echoSpecialty.short}` : ''}
         </p>
       </div>
     </>
