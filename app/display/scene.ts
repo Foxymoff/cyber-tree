@@ -6,7 +6,6 @@
  */
 import { Application, Container, Graphics, Rectangle, Text, TextStyle } from 'pixi.js';
 import { AdvancedBloomFilter } from 'pixi-filters';
-import QRCode from 'qrcode';
 import { LEAF_SIDE_OFFSET, type Anchor, type Point, type Tree } from '@/lib/tree/generate';
 import { createLeaf } from '@/lib/tree/leaf';
 import { PALETTE } from '@/lib/tree/palette';
@@ -40,26 +39,15 @@ const WARMUP_MIN_STEP_MS = 140;
 const FILL_PHASE_WEIGHT = 2.4;
 
 /**
- * Куда ведёт QR и что показываем подписью. Один голый адрес на обоих: из него же
- * генерируется код. Без https:// и хвостов — телефонные сканеры распознают домен.
+ * Адрес формы для подписи-ссылки сверху по центру. Голый, без https:// и хвостов.
+ * Сам QR на экране не рисуем — он на печатной табличке рядом с панелью, а дерево
+ * остаётся чистым арт-объектом. Подпись дублирует ту ссылку.
  */
 const SHORT_URL = 'cyber-tree.vercel.app/form';
-/**
- * Цвета QR — отдельными константами, чтобы инвертировать под панель одной правкой
- * (поменять местами). Тёмные модули на светлой подложке: тёмное-на-светлом
- * сканируется надёжнее, а подложка в тон шелкографии-логотипам.
- */
-const QR_DARK = PALETTE.bg; // #060A14 — модули
-const QR_LIGHT = PALETTE.silk; // #E8E4D9 — подложка
-/** Сторона модуля в единицах сцены. 25 модулей * 11 = 275 (сторона кода не меньше 260, ТЗ). */
-const QR_MODULE = 11;
-/** Поле подложки вокруг кода (quiet zone), единицы сцены. Не впритык — иначе тёмный фон сливается с модулями. */
-const QR_QUIET = 22;
-/** Отступы плашки QR от краёв сцены (правый верхний угол). */
-const QR_MARGIN_TOP = 12;
-const QR_MARGIN_RIGHT = 30;
+/** Отступ подписи-ссылки от верхнего края сцены. */
+const LINK_MARGIN_TOP = 18;
 /** Кегль подписи-ссылки: крупнее счётчика и не мельче подписи специальности на карточке. */
-const QR_CAPTION_SIZE = 32;
+const LINK_CAPTION_SIZE = 32;
 
 export interface SceneCallbacks {
   /** Показать карточку пожелания поверх экрана. */
@@ -242,9 +230,8 @@ export class TreeScene {
     // Счётчик вне мира: он не должен ездить вместе с камерой.
     app.stage.addChild(this.counter);
 
-    // QR и подпись-ссылка — тоже вне мира и вне bloom: свечение не должно
-    // размывать края кода, а дрейф камеры — уводить его из чистого угла.
-    this.mountQrCode();
+    // Подпись-ссылка сверху по центру — вне мира и вне bloom, как счётчик.
+    this.mountLinkCaption();
 
     // Ствол всегда под током: даже пустое дерево читается как «тёмный силуэт
     // плюс светящийся ствол», а не облысевшая заготовка. Это единственный
@@ -270,52 +257,24 @@ export class TreeScene {
   }
 
   /**
-   * QR со ссылкой на форму и текстовая подпись под неё же.
+   * Подпись-ссылка сверху по центру. Дублирует QR с печатной таблички рядом с
+   * панелью; сам QR на экране не рисуем — дерево остаётся чистым арт-объектом.
    *
-   * QR — вектором из матрицы библиотеки qrcode (не растр): края модулей чёткие
-   * при любом resolution, а слой вне bloom, чтобы свечение их не размывало.
-   * Плашка непрозрачная, подложка --silk с полем вокруг кода (quiet zone) —
-   * тёмное-на-светлом сканируется надёжно даже с дальнего конца зала.
-   *
-   * Правый верхний угол: код над кроной и над карточкой прилёта (её опустили
-   * так, чтобы даже длинная на 120 символов не доставала до кода). Подпись
-   * шире плашки и в углу залезла бы на ветки, поэтому она уходит в верх по
-   * центру отдельной строкой — читаемость важнее близости к коду.
+   * Вне мира и вне bloom (на app.stage, как счётчик): без дрейфа камеры и без
+   * размытия свечением. Одной строкой, перенос не нужен — адрес короткий.
    */
-  private mountQrCode(): void {
-    const qr = QRCode.create(SHORT_URL, { errorCorrectionLevel: 'M' });
-    const size = qr.modules.size;
-    const data = qr.modules.data;
-    const codeSide = size * QR_MODULE;
-    const plate = codeSide + QR_QUIET * 2;
-
-    const graphics = new Graphics();
-    // Подложка целиком, включая поле вокруг кода.
-    graphics.rect(0, 0, plate, plate).fill({ color: QR_LIGHT });
-    // Тёмные модули — накопить прямоугольники и залить одним разом.
-    for (let row = 0; row < size; row += 1) {
-      for (let col = 0; col < size; col += 1) {
-        if (data[row * size + col]) {
-          graphics.rect(QR_QUIET + col * QR_MODULE, QR_QUIET + row * QR_MODULE, QR_MODULE, QR_MODULE);
-        }
-      }
-    }
-    graphics.fill({ color: QR_DARK });
-    graphics.position.set(this.tree.width - plate - QR_MARGIN_RIGHT, QR_MARGIN_TOP);
-    this.app.stage.addChild(graphics);
-
+  private mountLinkCaption(): void {
     const caption = new Text({
       text: SHORT_URL,
       style: new TextStyle({
         fontFamily: this.fontFamily,
-        fontSize: QR_CAPTION_SIZE,
+        fontSize: LINK_CAPTION_SIZE,
         fill: PALETTE.silk,
         letterSpacing: 1.2,
       }),
     });
-    // Одной строкой по центру верха; перенос не нужен — адрес короткий и цельный.
     caption.anchor.set(0.5, 0);
-    caption.position.set(this.tree.width / 2, QR_MARGIN_TOP + 6);
+    caption.position.set(this.tree.width / 2, LINK_MARGIN_TOP);
     this.app.stage.addChild(caption);
   }
 
